@@ -27,7 +27,9 @@ Then open PowerShell **as administrator**, navigate to this project, and install
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1
 ```
 
-The installer selects the only physical Wi-Fi adapter. If needed, specify its
+The installer prefers the only connected physical Wi-Fi adapter and ignores
+devices marked `Not Present`. If none are connected, it selects the only remaining
+physical Wi-Fi adapter. If the choice is ambiguous, specify its
 Windows name with `-Interface 'WLAN'` or `-Interface 'Wi-Fi'`. Use `-PythonPath`
 for a Python installation that is not on PATH. Configuration, credentials and
 logs are stored under `%ProgramData%\CampusLogin`, accessible only to SYSTEM

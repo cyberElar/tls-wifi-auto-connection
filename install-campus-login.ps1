@@ -157,9 +157,17 @@ if ($pythonInfo.version -ne 3) {
 $PythonPath = $pythonInfo.executable
 
 if (-not $Interface) {
-    $adapters = @(Get-NetAdapter -Physical | Where-Object { $_.NdisPhysicalMedium -in @(1, 9) })
+    $adapters = @(Get-NetAdapter -Physical | Where-Object {
+        $_.NdisPhysicalMedium -in @(1, 9) -and $_.Status -ne 'Not Present'
+    })
+    $connectedAdapters = @($adapters | Where-Object { $_.Status -eq 'Up' })
+    if ($connectedAdapters.Count -eq 1) {
+        $adapters = $connectedAdapters
+    }
     if ($adapters.Count -ne 1) {
-        throw 'Could not select one Wi-Fi adapter. Use Get-NetAdapter, then specify -Interface with its Name.'
+        $candidates = ($adapters | ForEach-Object { '{0} [{1}]' -f $_.Name, $_.Status }) -join ', '
+        if (-not $candidates) { $candidates = 'none' }
+        throw "Could not select one Wi-Fi adapter. Candidates: $candidates. Use Get-NetAdapter, then specify -Interface with its Name."
     }
     $Interface = $adapters[0].Name
 }

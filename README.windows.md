@@ -50,8 +50,9 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.p
     -PythonPath 'C:\Python314\python.exe'
 ```
 
-Python 路径应改为实际安装路径。未指定 `-Interface` 时自动选择唯一的物理 Wi-Fi 网卡；
-无法唯一确定时会要求显式指定。也支持原脚本的 `CAMPUS_NETWORK` 和 `CAMPUS_IFACE` 环境变量，
+Python 路径应改为实际安装路径。未指定 `-Interface` 时忽略 `Not Present` 的设备记录，
+优先选择唯一在线的物理 Wi-Fi 网卡；没有在线网卡时，选择唯一仍在场的物理 Wi-Fi 网卡。
+无法唯一确定时会列出候选网卡并要求显式指定。也支持原脚本的 `CAMPUS_NETWORK` 和 `CAMPUS_IFACE` 环境变量，
 但网卡值应为 Windows 网卡名称。
 
 `-WhatIf` 只预览安装，不改文件或任务，但仍需提供有效的依赖和凭据；

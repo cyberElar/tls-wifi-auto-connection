@@ -79,6 +79,70 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Login script not found", result.stderr)
 
+    def adapter_preview(self, adapters, interface=None):
+        fixture = self.directory / "adapters.json"
+        fixture.write_text(json.dumps(adapters), encoding="utf-8")
+        wrapper = self.directory / "preview-adapters.ps1"
+        wrapper.write_text("""
+param($InstallerPath, $LoginScript, $CredentialPath, $PythonPath, $Interface)
+$ErrorActionPreference = 'Stop'
+function Get-NetAdapter {
+    param([switch] $Physical)
+    if (-not $Physical) { throw 'Expected a physical adapter query' }
+    $items = Get-Content -LiteralPath $env:CAMPUS_TEST_ADAPTERS -Raw -Encoding UTF8 | ConvertFrom-Json
+    foreach ($item in $items) { $item }
+}
+$parameters = @{
+    LoginScript = $LoginScript; CredentialPath = $CredentialPath
+    PythonPath = $PythonPath; WhatIf = $true
+}
+if ($Interface) { $parameters.Interface = $Interface }
+& $InstallerPath @parameters
+""", encoding="utf-8")
+        environment = os.environ.copy()
+        environment.pop("CAMPUS_IFACE", None)
+        environment["CAMPUS_TEST_ADAPTERS"] = str(fixture)
+        arguments = [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+                     "-File", str(wrapper), "-InstallerPath", str(ROOT / "install-campus-login.ps1"),
+                     "-LoginScript", str(self.worker), "-CredentialPath", str(self.credential),
+                     "-PythonPath", sys.executable]
+        if interface:
+            arguments.extend(["-Interface", interface])
+        return subprocess.run(arguments, capture_output=True, text=True, errors="replace",
+                              timeout=30, env=environment)
+
+    def test_adapter_autoselection_ignores_absent_devices_and_prefers_connected_wifi(self):
+        active = {"Name": "WLAN", "Status": "Up", "NdisPhysicalMedium": 9}
+        absent = {"Name": "WLAN 2", "Status": "Not Present", "NdisPhysicalMedium": 9}
+        other = {"Name": "WLAN 3", "Status": "Disconnected", "NdisPhysicalMedium": 9}
+        tunnel = {"Name": "singbox_tun", "Status": "Up", "NdisPhysicalMedium": 0}
+        for adapters in ([absent, active, tunnel], [other, active],
+                         [absent, dict(active, Status="Disconnected")]):
+            with self.subTest(adapters=adapters):
+                result = self.adapter_preview(adapters)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("on WLAN", result.stdout)
+                self.assertNotIn("on WLAN 2", result.stdout)
+                self.assertNotIn("on WLAN 3", result.stdout)
+
+    def test_adapter_autoselection_rejects_ambiguous_or_absent_wifi(self):
+        for status in ("Up", "Disconnected", "Not Present"):
+            with self.subTest(status=status):
+                adapters = [{"Name": name, "Status": status, "NdisPhysicalMedium": 9}
+                            for name in ("WLAN", "WLAN 2")]
+                result = self.adapter_preview(adapters)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("specify -Interface", result.stderr)
+                if status != "Not Present":
+                    self.assertIn("WLAN 2", result.stderr)
+
+    def test_explicit_interface_overrides_automatic_selection(self):
+        adapters = [{"Name": name, "Status": "Up", "NdisPhysicalMedium": 9}
+                    for name in ("WLAN", "WLAN 2")]
+        result = self.adapter_preview(adapters, interface="WLAN 2")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("on WLAN 2", result.stdout)
+
     def test_explicit_missing_credential_is_not_silently_reused(self):
         self.credential.unlink()
         result = self.preview()
