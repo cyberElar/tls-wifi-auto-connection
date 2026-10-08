@@ -1,0 +1,20 @@
+# Account credentials and generated service data
+.campus-login
+.campus-login-*
+credentials*.json
+config.json
+*.log
+*.log.*
+
+# Python caches and local environments
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+campus test */
+
+# Editor and OS files
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini

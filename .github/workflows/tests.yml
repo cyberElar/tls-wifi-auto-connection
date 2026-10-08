@@ -1,0 +1,36 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+        python: ['3.11', '3.14']
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.0.0
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Run unit and integration tests
+        run: python -m unittest discover -s tests -v
+      - name: Check Windows PowerShell 5.1 syntax
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          foreach ($file in @('install-campus-login.ps1', 'run-campus-login.ps1')) {
+            $tokens = $null
+            $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile(
+              (Join-Path (Get-Location) $file), [ref]$tokens, [ref]$errors
+            ) | Out-Null
+            if ($errors.Count) { throw ($errors | Out-String) }
+          }
