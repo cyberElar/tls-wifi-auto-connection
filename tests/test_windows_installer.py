@@ -34,11 +34,11 @@ class WindowsInstallerTests(unittest.TestCase):
     def tearDown(self):
         self.temporary.cleanup()
 
-    def installer(self, *arguments):
+    def installer(self, *arguments, env=None):
         return subprocess.run(
             [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
              "-File", str(ROOT / "install-campus-login.ps1"), *map(str, arguments)],
-            capture_output=True, text=True, errors="replace", timeout=30,
+            capture_output=True, text=True, errors="replace", timeout=30, env=env,
         )
 
     def preview(self, *arguments):
@@ -53,6 +53,25 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("Campus Network With Spaces", result.stdout)
         self.assertIn("Wi-Fi Test Adapter", result.stdout)
+
+    def test_autodiscovery_selects_one_python_and_skips_store_alias(self):
+        alias = self.directory / "WindowsApps"
+        another = self.directory / "Other Python"
+        for directory in (alias, another):
+            directory.mkdir()
+            (directory / "python.exe").write_bytes(b"")
+        real_python = str(Path(sys.executable).parent)
+        for paths in ((str(alias), real_python, str(another)),
+                      (real_python, str(another), str(alias))):
+            with self.subTest(paths=paths):
+                environment = os.environ.copy()
+                environment["PATH"] = os.pathsep.join((*paths, environment.get("PATH", "")))
+                result = self.installer(
+                    "-LoginScript", self.worker, "-CredentialPath", self.credential,
+                    "-Interface", "Wi-Fi Test Adapter", "-WhatIf", env=environment,
+                )
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("Wi-Fi Test Adapter", result.stdout)
 
     def test_missing_worker_fails_before_installation(self):
         self.worker.unlink()

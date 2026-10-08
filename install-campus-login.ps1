@@ -129,9 +129,13 @@ foreach ($field in @('user', 'password')) {
 $credentialJson = @{ user = $credential.user; password = $credential.password } | ConvertTo-Json
 
 if (-not $PythonPath) {
-    $pythonCommand = Get-Command python.exe -CommandType Application -ErrorAction SilentlyContinue
+    # Get-Command can return several executables; never stringify their paths
+    # together, and do not select a per-user install or the Store launcher.
+    $pythonCommand = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
+        Where-Object { $_.Source -notmatch '(?i)\\Users\\|\\WindowsApps\\' } |
+        Select-Object -First 1
     if (-not $pythonCommand) {
-        throw 'Python 3 not found. Install Python for all users or specify -PythonPath.'
+        throw 'Machine-wide Python 3 not found. Install Python for all users or specify -PythonPath.'
     }
     $PythonPath = $pythonCommand.Source
 }
