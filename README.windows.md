@@ -1,5 +1,7 @@
 # Windows 11 安装版
 
+[English](README.md) | [中文项目说明](README.zh-CN.md)
+
 普通用户可直接下载 [Windows 发布包](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest)，
 完整解压后双击 `CampusLoginSetup.exe`，允许管理员权限提示，填写账号密码并点击安装。
 发布包自带运行环境，无需安装 Python。详见 [发布包使用说明](README.release.md)。

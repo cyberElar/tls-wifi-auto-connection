@@ -1,5 +1,7 @@
 # TLS Wi-Fi Auto Connection
 
+English | [简体中文](README.zh-CN.md)
+
 Automatic login for the Tsinglan-School Sangfor AC captive portal. The client
 waits for the configured campus Wi-Fi, checks whether the portal blocks access,
 and signs in using locally stored credentials. Failed logins back off to avoid
@@ -8,30 +10,27 @@ rapid retries with an incorrect password.
 The Windows 11 version runs silently at startup through Task Scheduler. Linux
 uses the original Fedora/systemd installer. One-shot login also supports macOS.
 
-## Windows double-click release / Windows 双击安装版
+## Windows double-click release
 
 Download `CampusLogin-v1.0.0-windows-x64.zip` from
 [Releases](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest),
 extract the entire ZIP, then double-click **CampusLoginSetup.exe**. Allow the
 administrator prompt, enter your campus username and password, confirm the
-network name and Wi-Fi adapter, and click **安装 / 更新并启用**. The release bundles
-its runtime, so Python is not required. Keep the `_internal` folder next to the
-setup executable until installation finishes.
+network name and Wi-Fi adapter, and click the primary install/update button.
+The release bundles its runtime, so Python is not required. Keep the `_internal`
+folder next to the setup executable until installation finishes.
 
-下载发布包并完整解压，双击 **CampusLoginSetup.exe**，填写账号密码后点击安装即可。
-安装窗口提供卸载按钮，包内的 `Uninstall.cmd` 也可用于卸载。
-See [the release guide / 发布包使用说明](README.release.md).
+The installer interface is in Simplified Chinese. Use its uninstall button or
+the included `Uninstall.cmd` to remove the startup task.
+See [the release guide (in Chinese)](README.release.md).
 
-**Account and password storage / 账号密码存储位置:**
+**Account and password storage:**
 `%ProgramData%\CampusLogin\credentials.json`, normally
 `C:\ProgramData\CampusLogin\credentials.json`. The UTF-8 JSON fields are `user`
 (account) and `password` (password). Credentials are stored without encryption;
 only SYSTEM and administrators can access the file and installation directory.
 Uninstalling the task retains this file. Delete the installation directory with
 administrator privileges when you also want to remove the saved credentials.
-
-账号、密码分别保存在该 JSON 文件的 `user` 和 `password` 字段中。卸载开机任务会保留凭据，
-确认不再使用后可使用管理员权限删除 `C:\ProgramData\CampusLogin`。
 
 ## Windows 11 quick start
 
@@ -96,7 +95,7 @@ Uninstall the task (installed files and credentials are retained):
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1 -Uninstall
 ```
 
-See [the detailed Windows guide / Windows 中文说明](README.windows.md) for
+See [the detailed Windows guide (in Chinese)](README.windows.md) for
 installation options, log inspection, and troubleshooting.
 
 ## Network behavior
