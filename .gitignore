@@ -10,8 +10,11 @@ config.json
 __pycache__/
 *.py[cod]
 .venv/
+.venv-build/
 venv/
 campus test */
+build/
+dist/
 
 # Editor and OS files
 .vscode/

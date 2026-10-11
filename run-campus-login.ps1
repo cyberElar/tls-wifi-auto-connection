@@ -17,19 +17,27 @@ function Write-Log([string] $Message) {
 
 try {
     $config = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'config.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-    $loginScript = Join-Path $PSScriptRoot 'campus-login.py'
     $credentialPath = Join-Path $PSScriptRoot 'credentials.json'
-    foreach ($path in @($config.python, $loginScript, $credentialPath)) {
+    $loginArguments = @('--watch', $config.network, '-i', $config.interface, '--cred', $credentialPath)
+    if ($config.PSObject.Properties['executable']) {
+        $loginCommand = $config.executable
+        $requiredPaths = @($loginCommand, $credentialPath)
+    } else {
+        $loginCommand = $config.python
+        $loginScript = Join-Path $PSScriptRoot 'campus-login.py'
+        $requiredPaths = @($loginCommand, $loginScript, $credentialPath)
+        $loginArguments = @('-u', $loginScript) + $loginArguments
+    }
+    foreach ($path in $requiredPaths) {
         if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
             throw "Required file is missing: $path"
         }
     }
-    $pythonArguments = @('-u', $loginScript, '--watch', $config.network, '-i', $config.interface, '--cred', $credentialPath)
     while ($true) {
         # Native stderr must be logged without terminating the supervisor in
         # Windows PowerShell 5.1. Preserve argv boundaries (including spaces).
         $ErrorActionPreference = 'Continue'
-        & $config.python @pythonArguments 2>&1 | ForEach-Object { Write-Log $_.ToString() }
+        & $loginCommand @loginArguments 2>&1 | ForEach-Object { Write-Log $_.ToString() }
         $exitCode = $LASTEXITCODE
         $ErrorActionPreference = 'Stop'
         Write-Log "Login process exited with code $exitCode; restarting in 10 seconds."

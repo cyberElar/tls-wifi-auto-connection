@@ -1,5 +1,10 @@
 # Windows 11 安装版
 
+普通用户可直接下载 [Windows 发布包](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest)，
+完整解压后双击 `CampusLoginSetup.exe`，允许管理员权限提示，填写账号密码并点击安装。
+发布包自带运行环境，无需安装 Python。详见 [发布包使用说明](README.release.md)。
+以下手动安装步骤适用于源码版。
+
 `install-campus-login.ps1` 用 Windows 任务计划程序替代原安装脚本的 systemd 服务；
 `run-campus-login.ps1` 负责后台启动登录程序、记录输出，并在进程退出后等待 10 秒重启。
 开机任务使用 SYSTEM 身份，无需用户登录，不弹出窗口，使用电池时也运行。
@@ -24,18 +29,36 @@ Windows 网络配置名称可能带数字后缀，与 SSID 不完全相同。可
 
 ## 安装
 
-1. 安装 **供所有用户使用** 的 Python 3.11 或更新版本，不能使用用户目录内的安装或 WindowsApps 商店别名。
-2. 将 `campus-login.py`、`campus_login_windows.py` 与两个 `.ps1` 文件放在同一目录，或用 `-LoginScript` 指定路径。
-3. 在普通 PowerShell 中运行 `python .\campus-login.py --save-only`，按提示输入账号和密码。
+1. 在 [GitHub 仓库](https://github.com/cyberElar/tls-wifi-auto-connection) 点击 **Code → Download ZIP**，
+   下载并解压完整仓库；也可使用 Git 克隆。确认解压后的项目目录包含 `campus-login.py`、
+   `campus_login_windows.py`、`install-campus-login.ps1` 和 `run-campus-login.ps1` 四个文件。
+2. 安装 **供所有用户使用** 的 Python 3.11 或更新版本，不能使用用户目录内的安装或 WindowsApps 商店别名。
+3. 在普通 PowerShell 中切换到项目目录并检查安装脚本。以下示例假设 ZIP 解压在“下载”目录，
+   请将路径改为你实际解压的位置：
+
+   ```powershell
+   Set-Location "$env:USERPROFILE\Downloads\tls-wifi-auto-connection-main"
+   Test-Path -LiteralPath .\install-campus-login.ps1 -PathType Leaf
+   ```
+
+   检查结果应为 `True`。
+
+4. 在同一个终端中运行 `python .\campus-login.py --save-only`，按提示输入账号和密码。
    保存过程不联系认证门户，密码输入不回显，凭据文件只允许当前用户访问。
    也可以准备 UTF-8 JSON 文件，格式为 `{"user":"账号","password":"密码"}`。
    默认读取当前用户目录下的 `.campus-login`，也可用 `-CredentialPath` 指定。
-4. 以管理员身份打开 PowerShell，在脚本目录执行：
+5. 以管理员身份重新打开 PowerShell，**再次切换到同一个项目目录**，然后执行：
 
-```powershell
-Set-Location 'D:\projects\TLS Wi-fi Auto Connection'
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1
-```
+   ```powershell
+   Set-Location "$env:USERPROFILE\Downloads\tls-wifi-auto-connection-main"
+   powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1
+   ```
+
+若提示找不到 `install-campus-login.ps1`，先运行 `Get-Location` 和上面的 `Test-Path` 检查。
+`.\` 表示当前终端所在目录；新开的管理员终端可能从 `C:\Windows\System32` 等目录开始，
+需要重新进入包含安装脚本的项目目录。若下载目录中确实缺少文件，请重新下载并完整解压
+[最新仓库 ZIP](https://github.com/cyberElar/tls-wifi-auto-connection/archive/refs/heads/main.zip)，
+或在已有 Git 仓库中执行 `git pull --ff-only` 更新。
 
 指定其他文件、SSID 和网卡的例子：
 
@@ -61,6 +84,9 @@ Python 路径应改为实际安装路径。未指定 `-Interface` 时忽略 `Not
 
 程序、配置、凭据和日志存放于 `%ProgramData%\CampusLogin`，通常是 `C:\ProgramData\CampusLogin`。
 该目录只允许 SYSTEM 和管理员访问，凭据保持原来的 JSON 格式，不是加密存储。
+**账号和密码的完整保存路径为 `C:\ProgramData\CampusLogin\credentials.json`**
+（即 `%ProgramData%\CampusLogin\credentials.json`）：`user` 字段存账号，`password` 字段存密码。
+卸载开机任务会保留此文件；如需同时删除账号密码，卸载后用管理员权限删除安装目录。
 安装前会检查缺失文件、凭据结构、Python 版本和网卡选择。
 
 ## 查看与卸载

@@ -79,6 +79,65 @@ class WindowsInstallerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("Login script not found", result.stderr)
 
+    def test_executable_preview_needs_no_python_or_source_files(self):
+        executable = self.directory / "campus-login.exe"
+        executable.write_bytes(b"release-preview-fixture")
+        self.worker.unlink()
+        environment = os.environ.copy()
+        environment["PATH"] = str(Path(POWERSHELL).parent)
+        result = self.installer(
+            "-LoginExecutable", executable, "-CredentialPath", self.credential,
+            "-Network", "Campus Network With Spaces", "-Interface", "Wi-Fi Test Adapter",
+            "-WhatIf", env=environment,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("Campus Network With Spaces", result.stdout)
+
+    def test_missing_executable_fails_before_installation(self):
+        result = self.installer("-LoginExecutable", self.directory / "missing.exe", "-WhatIf")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Login executable not found", result.stderr)
+
+    def test_executable_rejects_source_and_python_parameters(self):
+        for option in ("-LoginScript", "-PythonPath"):
+            with self.subTest(option=option):
+                result = self.installer("-LoginExecutable", "release.exe", option, "source", "-WhatIf")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Use -LoginExecutable without", result.stderr)
+
+    def test_runner_launches_executable_config_without_python_script(self):
+        shutil.copyfile(ROOT / "run-campus-login.ps1", self.directory / "run-campus-login.ps1")
+        worker = self.directory / "executable-fixture.py"
+        worker.write_text("import json, sys\nprint(json.dumps(sys.argv[1:]), flush=True)\n", encoding="utf-8")
+        command = self.directory / "executable-fixture.cmd"
+        command.write_text('@echo off\n"%s" "%s" %%*\n' % (sys.executable, worker), encoding="utf-8")
+        self.worker.unlink()
+        (self.directory / "config.json").write_text(
+            json.dumps({"executable": str(command), "network": "Campus Network With Spaces",
+                        "interface": "Wi-Fi Test Adapter"}), encoding="utf-8")
+        process = subprocess.Popen(
+            [POWERSHELL, "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+             "-File", str(self.directory / "run-campus-login.ps1")],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        )
+        try:
+            log = self.directory / "campus-login.log"
+            deadline = time.monotonic() + 10
+            content = ""
+            while time.monotonic() < deadline:
+                content = log.read_text(encoding="utf-8") if log.exists() else ""
+                if "restarting in 10 seconds" in content:
+                    break
+                time.sleep(0.1)
+            self.assertIn("code 0", content)
+            line = next(line for line in content.splitlines() if '["--watch"' in line)
+            arguments = json.loads(line[line.index('["--watch"'):])
+            self.assertEqual(arguments, ["--watch", "Campus Network With Spaces", "-i",
+                                         "Wi-Fi Test Adapter", "--cred", str(self.credential)])
+        finally:
+            process.terminate()
+            process.wait(timeout=10)
+
     def adapter_preview(self, adapters, interface=None):
         fixture = self.directory / "adapters.json"
         fixture.write_text(json.dumps(adapters), encoding="utf-8")

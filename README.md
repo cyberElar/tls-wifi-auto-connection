@@ -8,10 +8,51 @@ rapid retries with an incorrect password.
 The Windows 11 version runs silently at startup through Task Scheduler. Linux
 uses the original Fedora/systemd installer. One-shot login also supports macOS.
 
+## Windows double-click release / Windows 双击安装版
+
+Download `CampusLogin-v1.0.0-windows-x64.zip` from
+[Releases](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest),
+extract the entire ZIP, then double-click **CampusLoginSetup.exe**. Allow the
+administrator prompt, enter your campus username and password, confirm the
+network name and Wi-Fi adapter, and click **安装 / 更新并启用**. The release bundles
+its runtime, so Python is not required. Keep the `_internal` folder next to the
+setup executable until installation finishes.
+
+下载发布包并完整解压，双击 **CampusLoginSetup.exe**，填写账号密码后点击安装即可。
+安装窗口提供卸载按钮，包内的 `Uninstall.cmd` 也可用于卸载。
+See [the release guide / 发布包使用说明](README.release.md).
+
+**Account and password storage / 账号密码存储位置:**
+`%ProgramData%\CampusLogin\credentials.json`, normally
+`C:\ProgramData\CampusLogin\credentials.json`. The UTF-8 JSON fields are `user`
+(account) and `password` (password). Credentials are stored without encryption;
+only SYSTEM and administrators can access the file and installation directory.
+Uninstalling the task retains this file. Delete the installation directory with
+administrator privileges when you also want to remove the saved credentials.
+
+账号、密码分别保存在该 JSON 文件的 `user` 和 `password` 字段中。卸载开机任务会保留凭据，
+确认不再使用后可使用管理员权限删除 `C:\ProgramData\CampusLogin`。
+
 ## Windows 11 quick start
 
-Install Python 3.11 or newer **for all users**, then keep the distribution's Python
-and PowerShell files together. No third-party Python packages are required.
+The steps below are for running from source. For double-click installation, use
+the release above.
+
+Download the [complete repository ZIP](https://github.com/cyberElar/tls-wifi-auto-connection/archive/refs/heads/main.zip)
+using **Code → Download ZIP** and extract it, or clone this repository with Git.
+The project folder must contain `campus-login.py`, `campus_login_windows.py`,
+`install-campus-login.ps1`, and `run-campus-login.ps1` together.
+
+Install Python 3.11 or newer **for all users**. No third-party Python packages
+are required. Open PowerShell and change to the extracted project folder. For
+example, if you extracted the ZIP into Downloads:
+
+```powershell
+Set-Location "$env:USERPROFILE\Downloads\tls-wifi-auto-connection-main"
+Test-Path -LiteralPath .\install-campus-login.ps1 -PathType Leaf
+```
+
+Adjust the path to your actual project folder. The check must return `True`.
 
 First save your credentials from a regular PowerShell terminal. The password is
 prompted without displaying it or putting it in shell history:
@@ -21,11 +62,19 @@ python .\campus-login.py --save-only
 python .\campus-login.py --list-interfaces
 ```
 
-Then open PowerShell **as administrator**, navigate to this project, and install:
+Then open PowerShell **as administrator**, change to the same project folder
+again, and install:
 
 ```powershell
+Set-Location "$env:USERPROFILE\Downloads\tls-wifi-auto-connection-main"
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1
 ```
+
+If PowerShell reports that `install-campus-login.ps1` does not exist, run
+`Get-Location` and repeat the `Test-Path` check. The `.\` prefix refers to the
+current terminal folder. A new administrator terminal may open in a different
+folder. If the file is missing from your download, extract the complete ZIP
+again or update your Git checkout with `git pull --ff-only`.
 
 The installer prefers the only connected physical Wi-Fi adapter and ignores
 devices marked `Not Present`. If none are connected, it selects the only remaining
@@ -103,6 +152,20 @@ install a startup task.
 Windows native Wi-Fi detection and the read-only status probe were also checked
 on the development computer. Real account authentication and startup execution
 still require verification on the target machine.
+
+## Building a Windows release
+
+On Windows x64 with Python 3.14:
+
+```powershell
+python -m venv .venv-build
+.\.venv-build\Scripts\python.exe -m pip install -r requirements-build.txt
+.\.venv-build\Scripts\python.exe .\build_windows_release.py
+```
+
+The ZIP and its SHA-256 checksum are written to `dist`. The build launches the
+bundled GUI and checks its assets, then checks the worker executable without
+installing a task or authenticating an account.
 
 API references: [Windows IP socket options](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options),
 [GetAdaptersAddresses](https://learn.microsoft.com/en-us/windows/win32/api/iphlpapi/nf-iphlpapi-getadaptersaddresses),

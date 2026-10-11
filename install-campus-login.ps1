@@ -3,8 +3,9 @@
 .SYNOPSIS
 Installs campus auto-login as a quiet Windows startup task.
 .DESCRIPTION
-Requires a Windows-compatible campus-login.py with the original --watch,
--i and --cred command-line options, and a machine-wide Python 3 installation.
+Accepts a bundled worker with -LoginExecutable, or a Windows-compatible
+campus-login.py and a machine-wide Python 3 installation for source installs.
+The worker must support the original --watch, -i and --cred options.
 Run from an elevated PowerShell prompt. Use -WhatIf to preview or -Uninstall
 to remove the task (installed files and credentials are retained).
 .EXAMPLE
@@ -17,6 +18,7 @@ param(
     [Parameter(Position = 0)]
     [string] $CredentialPath = (Join-Path ([Environment]::GetFolderPath('UserProfile')) '.campus-login'),
     [string] $LoginScript,
+    [string] $LoginExecutable,
     [ValidateNotNullOrEmpty()]
     [string] $Network = $(if ($env:CAMPUS_NETWORK) { $env:CAMPUS_NETWORK } else { 'Tsinglan-School' }),
     [string] $Interface = $env:CAMPUS_IFACE,
@@ -31,6 +33,7 @@ $taskName = 'CampusLogin'
 $installDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CampusLogin'
 $installedCredential = Join-Path $installDir 'credentials.json'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
+[Console]::OutputEncoding = $utf8
 
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -81,32 +84,42 @@ if ($Uninstall) {
 }
 
 # Validate dependencies before changing files or an existing task.
-if (-not $LoginScript) {
-    $LoginScript = Join-Path $PSScriptRoot 'campus-login.py'
+if ($LoginExecutable -and ($LoginScript -or $PythonPath)) {
+    throw 'Use -LoginExecutable without -LoginScript or -PythonPath.'
 }
-if (-not (Test-Path -LiteralPath $LoginScript -PathType Leaf)) {
-    throw "Login script not found: $LoginScript. Supply a Windows-compatible campus-login.py with -LoginScript."
+if ($LoginExecutable) {
+    if (-not (Test-Path -LiteralPath $LoginExecutable -PathType Leaf)) {
+        throw "Login executable not found: $LoginExecutable"
+    }
+    $LoginExecutable = (Resolve-Path -LiteralPath $LoginExecutable).ProviderPath
+} else {
+    if (-not $LoginScript) {
+        $LoginScript = Join-Path $PSScriptRoot 'campus-login.py'
+    }
+    if (-not (Test-Path -LiteralPath $LoginScript -PathType Leaf)) {
+        throw "Login script not found: $LoginScript. Supply a Windows-compatible campus-login.py with -LoginScript."
+    }
+    $LoginScript = (Resolve-Path -LiteralPath $LoginScript).ProviderPath
+    $windowsSource = Join-Path (Split-Path -Parent $LoginScript) 'campus_login_windows.py'
+    if (-not (Test-Path -LiteralPath $windowsSource -PathType Leaf)) {
+        $windowsSource = Join-Path $PSScriptRoot 'campus_login_windows.py'
+    }
+    if (-not (Test-Path -LiteralPath $windowsSource -PathType Leaf)) {
+        throw 'Windows support module not found. Keep campus_login_windows.py with the installer.'
+    }
 }
-$LoginScript = (Resolve-Path -LiteralPath $LoginScript).ProviderPath
 $runnerSource = Join-Path $PSScriptRoot 'run-campus-login.ps1'
 if (-not (Test-Path -LiteralPath $runnerSource -PathType Leaf)) {
     throw "Runner not found: $runnerSource. Keep both PowerShell files together."
 }
-$windowsSource = Join-Path (Split-Path -Parent $LoginScript) 'campus_login_windows.py'
-if (-not (Test-Path -LiteralPath $windowsSource -PathType Leaf)) {
-    $windowsSource = Join-Path $PSScriptRoot 'campus_login_windows.py'
-}
-if (-not (Test-Path -LiteralPath $windowsSource -PathType Leaf)) {
-    throw 'Windows support module not found. Keep campus_login_windows.py with the installer.'
-}
 if (-not (Test-Path -LiteralPath $CredentialPath -PathType Leaf)) {
+    # Explicit paths never fall back to installed credentials. Check this
+    # before probing the restricted installation directory.
+    if ($PSBoundParameters.ContainsKey('CredentialPath')) {
+        throw "Credential file not found: $CredentialPath"
+    }
     if (Test-Path -LiteralPath $installedCredential -PathType Leaf) {
-        # Only reuse installed credentials when the default input was omitted.
-        if (-not $PSBoundParameters.ContainsKey('CredentialPath')) {
-            $CredentialPath = $installedCredential
-        } else {
-            throw "Credential file not found: $CredentialPath"
-        }
+        $CredentialPath = $installedCredential
     } else {
         throw "Credential file not found: $CredentialPath. Expected JSON with user and password fields."
     }
@@ -128,33 +141,35 @@ foreach ($field in @('user', 'password')) {
 }
 $credentialJson = @{ user = $credential.user; password = $credential.password } | ConvertTo-Json
 
-if (-not $PythonPath) {
-    # Get-Command can return several executables; never stringify their paths
-    # together, and do not select a per-user install or the Store launcher.
-    $pythonCommand = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
-        Where-Object { $_.Source -notmatch '(?i)\\Users\\|\\WindowsApps\\' } |
-        Select-Object -First 1
-    if (-not $pythonCommand) {
-        throw 'Machine-wide Python 3 not found. Install Python for all users or specify -PythonPath.'
+if (-not $LoginExecutable) {
+    if (-not $PythonPath) {
+        # Get-Command can return several executables; never stringify their paths
+        # together, and do not select a per-user install or the Store launcher.
+        $pythonCommand = Get-Command python.exe -CommandType Application -All -ErrorAction SilentlyContinue |
+            Where-Object { $_.Source -notmatch '(?i)\\Users\\|\\WindowsApps\\' } |
+            Select-Object -First 1
+        if (-not $pythonCommand) {
+            throw 'Machine-wide Python 3 not found. Install Python for all users or specify -PythonPath.'
+        }
+        $PythonPath = $pythonCommand.Source
     }
-    $PythonPath = $pythonCommand.Source
+    if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
+        throw "Python executable not found: $PythonPath"
+    }
+    $PythonPath = (Resolve-Path -LiteralPath $PythonPath).ProviderPath
+    if ($PythonPath -match '(?i)\\Users\\|\\WindowsApps\\') {
+        throw 'The SYSTEM task needs machine-wide Python, not a per-user install or Microsoft Store alias. Specify -PythonPath to an all-users installation.'
+    }
+    $pythonInfo = & $PythonPath -I -c "import json, sys; print(json.dumps({'version': sys.version_info.major, 'executable': sys.executable}))"
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Could not start the selected Python executable.'
+    }
+    $pythonInfo = $pythonInfo | ConvertFrom-Json
+    if ($pythonInfo.version -ne 3) {
+        throw 'Python 3 is required.'
+    }
+    $PythonPath = $pythonInfo.executable
 }
-if (-not (Test-Path -LiteralPath $PythonPath -PathType Leaf)) {
-    throw "Python executable not found: $PythonPath"
-}
-$PythonPath = (Resolve-Path -LiteralPath $PythonPath).ProviderPath
-if ($PythonPath -match '(?i)\\Users\\|\\WindowsApps\\') {
-    throw 'The SYSTEM task needs machine-wide Python, not a per-user install or Microsoft Store alias. Specify -PythonPath to an all-users installation.'
-}
-$pythonInfo = & $PythonPath -I -c "import json, sys; print(json.dumps({'version': sys.version_info.major, 'executable': sys.executable}))"
-if ($LASTEXITCODE -ne 0) {
-    throw 'Could not start the selected Python executable.'
-}
-$pythonInfo = $pythonInfo | ConvertFrom-Json
-if ($pythonInfo.version -ne 3) {
-    throw 'Python 3 is required.'
-}
-$PythonPath = $pythonInfo.executable
 
 if (-not $Interface) {
     $adapters = @(Get-NetAdapter -Physical | Where-Object {
@@ -171,11 +186,16 @@ if (-not $Interface) {
     }
     $Interface = $adapters[0].Name
 }
-$configJson = @{
-    python = $PythonPath
+$config = @{
     network = $Network
     interface = $Interface
-} | ConvertTo-Json
+}
+if ($LoginExecutable) {
+    $config.executable = Join-Path $installDir 'campus-login.exe'
+} else {
+    $config.python = $PythonPath
+}
+$configJson = $config | ConvertTo-Json
 
 if (-not $PSCmdlet.ShouldProcess("$installDir and scheduled task $taskName", "Install auto-login for $Network on $Interface")) {
     return
@@ -191,7 +211,7 @@ if (Test-Path -LiteralPath $installDir) {
     New-Item -ItemType Directory -Path $installDir | Out-Null
     Set-PrivatePath $installDir
 }
-foreach ($name in @('campus-login.py', 'campus_login_windows.py', 'run-campus-login.ps1', 'config.json', 'credentials.json', 'campus-login.log', 'campus-login.log.1')) {
+foreach ($name in @('campus-login.exe', 'campus-login.py', 'campus_login_windows.py', 'run-campus-login.ps1', 'config.json', 'credentials.json', 'campus-login.log', 'campus-login.log.1')) {
     $destination = Join-Path $installDir $name
     if (Test-Path -LiteralPath $destination) {
         Set-PrivatePath $destination
@@ -201,10 +221,17 @@ $existing = Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction Sil
 if ($existing) {
     Stop-ScheduledTask -TaskName $taskName -TaskPath '\'
 }
-foreach ($source in @($LoginScript, $windowsSource, $runnerSource)) {
+$sources = @($runnerSource)
+if ($LoginExecutable) {
+    $sources += $LoginExecutable
+} else {
+    $sources += @($LoginScript, $windowsSource)
+}
+foreach ($source in $sources) {
     $destination = Join-Path $installDir ([IO.Path]::GetFileName($source))
     # -LoginScript may refer to a differently named file.
     if ($source -eq $LoginScript) { $destination = Join-Path $installDir 'campus-login.py' }
+    if ($source -eq $LoginExecutable) { $destination = Join-Path $installDir 'campus-login.exe' }
     if (-not [string]::Equals($source, $destination, [StringComparison]::OrdinalIgnoreCase)) {
         Copy-Item -LiteralPath $source -Destination $destination -Force
     }
