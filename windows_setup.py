@@ -58,6 +58,7 @@ def installer_command(credential, network, interface, *, preview=False):
 def run_command(command):
     environment = os.environ.copy()
     environment.pop("PSModulePath", None)
+    environment.pop("PSMODULEPATH", None)
     result = subprocess.run(command, capture_output=True, encoding="utf-8", errors="replace",
                             creationflags=subprocess.CREATE_NO_WINDOW, timeout=120,
                             env=environment)

@@ -54,10 +54,12 @@ class WindowsSetupTests(unittest.TestCase):
 
     def test_subprocess_failure_is_reported_and_console_is_hidden(self):
         result = subprocess.CompletedProcess([], 1, "", "installer error")
-        with patch.object(setup.subprocess, "run", return_value=result) as run:
+        with patch.dict(os.environ, {"PSMODULEPATH": r"C:\PowerShell7\Modules"}), \
+             patch.object(setup.subprocess, "run", return_value=result) as run:
             with self.assertRaisesRegex(OSError, "installer error"):
                 setup.run_command(["installer"])
         self.assertEqual(run.call_args.kwargs["creationflags"], subprocess.CREATE_NO_WINDOW)
+        self.assertNotIn("PSMODULEPATH", run.call_args.kwargs["env"])
 
     def test_ambiguous_wifi_remains_available_for_manual_selection(self):
         values = [{"Name": "Wi-Fi 2", "Status": "Disconnected"}, {"Name": "WLAN", "Status": "Up"}]

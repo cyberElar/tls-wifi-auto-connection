@@ -136,6 +136,7 @@ def run_powershell(script, env=None):
     # A Python process launched from PowerShell 7 can inherit Core-only module
     # paths. Let Windows PowerShell 5.1 rebuild its own default module paths.
     environment.pop("PSModulePath", None)
+    environment.pop("PSMODULEPATH", None)
     result = subprocess.run(
         [executable, "-NoProfile", "-NonInteractive", "-OutputFormat", "Text", "-EncodedCommand", encoded],
         capture_output=True, encoding="utf-8", errors="replace", timeout=15,
