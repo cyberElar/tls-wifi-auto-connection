@@ -11,25 +11,29 @@ macOS 支持手动单次登录。
 
 ## Windows 双击安装版
 
-从 [Releases](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest)
-下载 `CampusLogin-v1.0.0-windows-x64.zip`，完整解压后双击 **CampusLoginSetup.exe**。
-允许 Windows 管理员权限提示，填写校园账号和密码，确认校园网络名称及 Wi-Fi 网卡，
-然后点击 **安装 / 更新并启用**。
+从 [Releases](../../releases/latest) 下载单个文件
+`CampusLoginSetup-v<版本>-windows-x64.exe`，双击运行。若出现“Windows 已保护你的电脑”，
+点 **更多信息 → 仍要运行**（程序没有代码签名）。允许管理员权限提示，填写校园账号和密码，
+点击 **安装 / 更新并启用**。校园网络名称和 Wi-Fi 网卡一般会自动填好。
 
-发布包自带运行环境，无需另装 Python。安装完成前，请保留安装程序旁的 `_internal` 目录。
-安装窗口中的“卸载开机任务”按钮及包内的 `Uninstall.cmd` 均可用于卸载。
+程序自带运行环境，无需另装 Python。“查看运行状态”会显示后台任务是否在运行，
+并用中文解释最近一条日志；“卸载”可选择是否同时删除保存的账号密码和日志。
 详见 [发布包使用说明](README.release.md)。
 
-**账号和密码的保存位置：** `%ProgramData%\CampusLogin\credentials.json`，通常为：
+**账号和密码的保存位置：** `%ProgramFiles%\CampusLogin\credentials.json`，通常为：
 
 ```text
-C:\ProgramData\CampusLogin\credentials.json
+C:\Program Files\CampusLogin\credentials.json
 ```
 
 文件采用 UTF-8 JSON 格式，`user` 字段存账号，`password` 字段存密码。
 凭据不是加密存储；文件及安装目录仅允许 SYSTEM 和管理员访问。
-卸载开机任务会保留凭据文件。确认不再使用后，可使用管理员权限删除
-`C:\ProgramData\CampusLogin`，同时删除保存的账号密码。
+卸载时选择删除数据（或给 PowerShell 安装脚本加 `-RemoveData`）会一并删除凭据文件，
+否则保留。
+
+0.2.0 之前的版本（v0.1.0 发布）安装在 `%ProgramData%\CampusLogin`。普通用户可以在 ProgramData 下新建文件夹，
+预先建好的目录里可能留有会被 SYSTEM 任务执行的文件；0.2.0 改为安装到 Program Files，
+并在安装成功后删除旧目录里的文件。
 
 ## Windows 11 源码安装
 
@@ -77,7 +81,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.p
 `-Interface 'WLAN'` 或 `-Interface 'Wi-Fi'` 指定 Windows 网卡名称。
 若 Python 不在 PATH 中，可使用 `-PythonPath` 指定安装路径。
 
-配置、凭据和日志保存在 `%ProgramData%\CampusLogin`，仅 SYSTEM 和管理员可访问。
+配置、凭据和日志保存在 `%ProgramFiles%\CampusLogin`，仅 SYSTEM 和管理员可访问。
 开机任务以 SYSTEM 身份运行，包括用户登录 Windows 之前。
 
 手动检查网络状态：
@@ -151,7 +155,7 @@ python -m venv .venv-build
 .\.venv-build\Scripts\python.exe .\build_windows_release.py
 ```
 
-ZIP 和 SHA-256 校验文件输出到 `dist` 目录。构建过程会启动打包后的安装窗口，检查所需文件，
+单个安装程序 EXE、SHA-256 校验文件和第三方许可说明输出到 `dist` 目录。构建过程会启动打包后的安装窗口，检查所需文件，
 并验证后台 EXE；不会注册开机任务或使用真实账号认证。
 
 API 参考：[Windows IP socket options](https://learn.microsoft.com/en-us/windows/win32/winsock/ipproto-ip-socket-options)、

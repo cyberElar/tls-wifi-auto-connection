@@ -179,6 +179,9 @@ def watch(args):
     # portal expires underneath us. Off campus it does nothing but ask
     # NetworkManager which network this is.
     last_net, failures, last_error = None, 0, None
+    # One line per change of situation, so the log shows the service is alive
+    # (people check it after installing) without growing every minute.
+    announced = None
     while True:
         try:
             name, ssid = current_network(args.iface)
@@ -189,6 +192,9 @@ def watch(args):
             if message != last_error:
                 print("%s: network check failed: %s" % (args.iface, message), flush=True)
             last_error = message
+            # The error is now the latest line in the log; whatever comes
+            # next, online or away, has to be logged again to supersede it.
+            announced = None
             time.sleep(15)
             continue
         on_campus = args.watch in (name, ssid)
@@ -196,16 +202,25 @@ def watch(args):
             failures = 0
         last_net = args.watch if on_campus else name
         if not on_campus:
+            if announced != ("away", name):
+                print("%s: waiting for %s (current network: %s)"
+                      % (args.iface, args.watch, name or "none"), flush=True)
+                announced = ("away", name)
             time.sleep(15)
             continue
         now = state(src, args.iface) if src else "unknown"
         if now == "online":
             failures = 0
+            if announced != "online":
+                print("%s: on %s and online" % (args.iface, args.watch), flush=True)
+                announced = "online"
             time.sleep(60)
             continue
         if now == "unknown":
             time.sleep(5)
             continue
+        # A brief probe timeout is not news; only the portal reappearing is.
+        announced = None
         try:
             user, pwd = load_cred(args.cred)
         except Exception as e:
@@ -216,6 +231,7 @@ def watch(args):
         time.sleep(2)
         if state(src, args.iface) == "online":
             print("%s: logged in to %s" % (args.iface, args.watch), flush=True)
+            announced = "online"
             failures = 0
             continue
         failures += 1

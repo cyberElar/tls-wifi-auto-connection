@@ -227,6 +227,18 @@ if ($Interface) { $parameters.Interface = $Interface }
         result = self.installer("-Uninstall", "-WhatIf")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("CampusLogin", result.stdout)
+        self.assertNotIn("saved data", result.stdout)
+
+    def test_uninstall_preview_with_data_removal(self):
+        result = self.installer("-Uninstall", "-RemoveData", "-WhatIf")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("delete its saved data", result.stdout)
+
+    def test_installs_under_program_files_not_programdata(self):
+        result = self.preview()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        program_files = os.environ.get("ProgramW6432") or os.environ["ProgramFiles"]
+        self.assertIn(str(Path(program_files) / "CampusLogin"), result.stdout)
 
     def test_runner_logs_stderr_preserves_arguments_rotates_and_restarts(self):
         shutil.copyfile(ROOT / "run-campus-login.ps1", self.directory / "run-campus-login.ps1")

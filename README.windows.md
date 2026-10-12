@@ -84,10 +84,10 @@ Python 路径应改为实际安装路径。未指定 `-Interface` 时忽略 `Not
 `-NoStart` 注册开机任务但暂不启动。正常安装立即启动，重复安装会更新并重启已有任务。
 重新安装时，若默认凭据文件不存在，会复用已安装的凭据；显式指定的凭据路径不存在则报错。
 
-程序、配置、凭据和日志存放于 `%ProgramData%\CampusLogin`，通常是 `C:\ProgramData\CampusLogin`。
+程序、配置、凭据和日志存放于 `%ProgramFiles%\CampusLogin`，通常是 `C:\Program Files\CampusLogin`。
 该目录只允许 SYSTEM 和管理员访问，凭据保持原来的 JSON 格式，不是加密存储。
-**账号和密码的完整保存路径为 `C:\ProgramData\CampusLogin\credentials.json`**
-（即 `%ProgramData%\CampusLogin\credentials.json`）：`user` 字段存账号，`password` 字段存密码。
+**账号和密码的完整保存路径为 `C:\Program Files\CampusLogin\credentials.json`**
+（即 `%ProgramFiles%\CampusLogin\credentials.json`）：`user` 字段存账号，`password` 字段存密码。
 卸载开机任务会保留此文件；如需同时删除账号密码，卸载后用管理员权限删除安装目录。
 安装前会检查缺失文件、凭据结构、Python 版本和网卡选择。
 
@@ -104,17 +104,19 @@ python .\campus-login.py --status -i 'WLAN'
 ```powershell
 Get-ScheduledTask -TaskName CampusLogin
 Get-ScheduledTaskInfo -TaskName CampusLogin
-Get-Content "$env:ProgramData\CampusLogin\campus-login.log" -Tail 30 -Wait
+Get-Content "$env:ProgramFiles\CampusLogin\campus-login.log" -Tail 30 -Wait
 
 Stop-ScheduledTask -TaskName CampusLogin
 Start-ScheduledTask -TaskName CampusLogin
 
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1 -Uninstall
+# 同时删除账号密码、日志和程序文件：
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1 -Uninstall -RemoveData
 ```
 
 日志包含登录程序的输出、退出和重试信息，达到约 5 MB 时保留一份轮换日志。
 任务显示 `Running` 只说明后台进程在运行，是否认证成功需查看日志。
-卸载会停止并移除任务，保留安装目录和凭据；确认不再使用后可自行删除该目录。
+卸载会停止并移除任务；不加 `-RemoveData` 时保留安装目录和凭据。
 
 任务参数的官方参考：[Register-ScheduledTask](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/register-scheduledtask)、
 [New-ScheduledTaskSettingsSet](https://learn.microsoft.com/en-us/powershell/module/scheduledtasks/new-scheduledtasksettingsset)。

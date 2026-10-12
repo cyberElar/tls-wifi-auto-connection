@@ -1,4 +1,4 @@
-"""Build a self-contained Windows x64 ZIP and verify its frozen entry points."""
+"""Build a single self-contained Windows x64 setup .exe and verify its frozen entry points."""
 
 import argparse
 import hashlib
@@ -9,7 +9,6 @@ import platform
 import shutil
 import subprocess
 import sys
-import zipfile
 
 
 ROOT = Path(__file__).resolve().parent
@@ -41,16 +40,7 @@ def main():
     run(*common, "--onefile", "--name", "campus-login", "--distpath", str(build / "worker"),
         "--workpath", str(build / "worker-build"), str(ROOT / "campus-login.py"), env=environment)
     worker = build / "worker" / "campus-login.exe"
-    setup = [*common, "--onedir", "--windowed", "--name", "CampusLoginSetup",
-             "--distpath", str(ROOT / "dist"), "--workpath", str(build / "setup-build")]
-    for source in (worker, ROOT / "install-campus-login.ps1", ROOT / "run-campus-login.ps1", ROOT / "VERSION"):
-        setup.extend(("--add-data", "%s:." % source))
-    run(*setup, str(ROOT / "windows_setup.py"), env=environment)
-    package = ROOT / "dist" / "CampusLoginSetup"
-    shutil.copyfile(ROOT / "README.release.md", package / "README.txt")
-    (package / "Uninstall.cmd").write_bytes(
-        b'@echo off\r\nstart "" "%~dp0CampusLoginSetup.exe" --uninstall\r\n'
-    )
+
     notices = ["Python and Tcl/Tk are bundled with this release.\n",
                "PyInstaller's bootloader is distributed under its GPL exception allowing bundled applications.\n",
                "https://pyinstaller.org/en/stable/license.html\n\n"]
@@ -59,7 +49,18 @@ def main():
                    Path(sys.base_prefix) / "tcl" / "tk8.6" / "license.terms"):
         if source.is_file():
             notices.append(source.name + "\n" + source.read_text(encoding="utf-8", errors="replace") + "\n\n")
-    (package / "THIRD-PARTY-NOTICES.txt").write_text("".join(notices), encoding="utf-8")
+    notice = build / "THIRD-PARTY-NOTICES.txt"
+    notice.write_text("".join(notices), encoding="utf-8")
+
+    # One file to download and double-click: students should not have to
+    # unzip anything or keep a folder of runtime files next to the program.
+    setup = [*common, "--onefile", "--windowed", "--name", "CampusLoginSetup",
+             "--distpath", str(build / "setup"), "--workpath", str(build / "setup-build")]
+    for source in (worker, ROOT / "install-campus-login.ps1", ROOT / "run-campus-login.ps1",
+                   ROOT / "VERSION", notice):
+        setup.extend(("--add-data", "%s:." % source))
+    run(*setup, str(ROOT / "windows_setup.py"), env=environment)
+    built = build / "setup" / "CampusLoginSetup.exe"
 
     # Launch from a folder with spaces and non-ASCII characters, outside the
     # project cwd; verify bundled Tk and assets without UAC or installation.
@@ -67,28 +68,27 @@ def main():
     smoke.mkdir(exist_ok=True)
     report = smoke / "setup-report.json"
     report.unlink(missing_ok=True)
-    result = subprocess.run([str(package / "CampusLoginSetup.exe"), "--smoke-test", str(report)],
-                            cwd=smoke, env=environment, timeout=60)
+    result = subprocess.run([str(built), "--smoke-test", str(report)],
+                            cwd=smoke, env=environment, timeout=120)
     if result.returncode or not report.is_file():
         raise RuntimeError("Frozen GUI smoke test failed")
     metadata = json.loads(report.read_text(encoding="utf-8"))
     if not all(metadata["assets"].values()) or metadata["version"] != options.version:
         raise RuntimeError("Incomplete frozen installer")
-    subprocess.run([str(package / "_internal" / "campus-login.exe"), "--help"],
+    subprocess.run([str(worker), "--help"],
                    cwd=smoke, check=True, capture_output=True, env=environment, timeout=60)
-    subprocess.run([str(package / "_internal" / "campus-login.exe"), "--list-interfaces"],
+    subprocess.run([str(worker), "--list-interfaces"],
                    cwd=smoke, check=True, capture_output=True, env=environment, timeout=60)
 
-    name = "CampusLogin-v%s-windows-x64" % options.version
-    archive = ROOT / "dist" / (name + ".zip")
-    with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as output:
-        for source in sorted(package.rglob("*")):
-            if source.is_file():
-                output.write(source, str(Path(name) / source.relative_to(package)))
-    with archive.open("rb") as stream:
+    dist = ROOT / "dist"
+    dist.mkdir(exist_ok=True)
+    release = dist / ("CampusLoginSetup-v%s-windows-x64.exe" % options.version)
+    shutil.copyfile(built, release)
+    shutil.copyfile(notice, dist / notice.name)
+    with release.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
-    archive.with_suffix(".zip.sha256").write_text(digest + "  " + archive.name + "\n", encoding="ascii")
-    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (archive, digest, metadata))
+    release.with_name(release.name + ".sha256").write_text(digest + "  " + release.name + "\n", encoding="ascii")
+    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (release, digest, metadata))
 
 
 if __name__ == "__main__":

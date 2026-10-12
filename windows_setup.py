@@ -6,18 +6,24 @@ import json
 import os
 from pathlib import Path
 import queue
+import re
 import subprocess
 import sys
 import tempfile
 import threading
+import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, scrolledtext, ttk
 
 import campus_login_windows as windows
 
 
 ASSETS = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
-INSTALL_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "CampusLogin"
+INSTALL_DIR = Path(os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
+                   or r"C:\Program Files") / "CampusLogin"
+LOG = INSTALL_DIR / "campus-login.log"
+# Where 0.1.0 installed; read only to carry settings over on the first upgrade.
+LEGACY_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "CampusLogin"
 VERSION = (ASSETS / "VERSION").read_text(encoding="utf-8").strip()
 
 
@@ -85,9 +91,64 @@ def install(user, password, network, interface, *, preview=False):
                                               preview=preview))
 
 
-def uninstall():
-    return run_command([powershell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                        "-File", str(ASSETS / "install-campus-login.ps1"), "-Uninstall"])
+def uninstall(remove_data=False):
+    command = [powershell(), "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+               "-File", str(ASSETS / "install-campus-login.ps1"), "-Uninstall"]
+    if remove_data:
+        command.append("-RemoveData")
+    return run_command(command)
+
+
+# The worker logs in English; students read this window. Each pattern maps the
+# start of a log message (after the "<interface>: " prefix) to plain Chinese.
+MESSAGES = (
+    (r"logged in to (.+)", "已自动登录校园网 {0}。"),
+    (r"on (.+) and online", "已连接校园网 {0}，当前在线，无需再次登录。"),
+    (r"login failed \((.*)\)", "登录失败：{0}。请检查账号和密码，然后重新安装。"),
+    (r"waiting for (.+) \(current network: (.*)\)", "当前没有连接校园网（现在的网络：{1}），连上 {0} 后会自动登录。"),
+    (r"network check failed: (.*)", "暂时无法读取 Wi-Fi 状态：{0}"),
+    (r"no usable credentials", "保存的账号密码不可用，请重新安装并填写账号密码。"),
+    # Supervisor records (run-campus-login.ps1): newer failures must not be
+    # hidden behind an older successful login.
+    (r"Supervisor failed: (.*)", "后台程序出错：{0}。请重新运行安装程序修复。"),
+    (r"Login process exited with code (-?\d+)", "后台程序意外退出（代码 {0}），正在自动重启。"),
+)
+
+
+def describe(line):
+    """Plain-language summary of one log line, or None for unrecognised lines."""
+    message = re.sub(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", "", line.strip())
+    message = re.sub(r"^(?!Supervisor )[^:]+: (?=(logged|on |login|waiting|network))", "", message)
+    for pattern, text in MESSAGES:
+        match = re.match(pattern, message)
+        if match:
+            return text.format(*match.groups())
+    return None
+
+
+def read_status():
+    output = windows.run_powershell(
+        "$task = Get-ScheduledTask -TaskName CampusLogin -TaskPath '\\' -ErrorAction SilentlyContinue; "
+        "if ($task) { [string]$task.State } else { '' }"
+    )
+    try:
+        lines = LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
+    except OSError:
+        lines = []
+    state = output.strip()
+    return state, summarize(state, lines), lines
+
+
+def summarize(state, lines):
+    """What a student should know now: the task state first, then the newest log record."""
+    if state == "":
+        return "后台任务没有安装，请点“安装 / 更新并启用”。"
+    latest = next((text for text in map(describe, reversed(lines)) if text), None)
+    if state != "Running":
+        # A stopped task means nothing is being logged, so an old success would mislead.
+        return "后台任务没有在运行，请重新运行安装程序或重启电脑。" + (
+            "最后一条记录：%s" % latest if latest else "")
+    return latest
 
 
 def wifi_choices():
@@ -115,7 +176,7 @@ class SetupWindow:
         panel.grid(sticky="nsew")
         ttk.Label(panel, text="校园网自动登录", font=("Microsoft YaHei UI", 18, "bold")).grid(
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        ttk.Label(panel, text="保存一次，开机后自动连接认证。无需安装 Python。",
+        ttk.Label(panel, text="填好账号密码，点一次安装。以后开机会自动登录校园网。",
                   font=("Microsoft YaHei UI", 10)).grid(row=1, column=0, columnspan=2,
                                                        sticky="w", pady=(0, 20))
         self.user = tk.StringVar()
@@ -141,9 +202,13 @@ class SetupWindow:
         self.install_button.grid(row=7, column=0, columnspan=2, sticky="ew", ipady=5)
         controls = ttk.Frame(panel)
         controls.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 16))
-        self.uninstall_button = ttk.Button(controls, text="卸载开机任务", command=self.start_uninstall)
+        self.uninstall_button = ttk.Button(controls, text="卸载", command=self.start_uninstall)
         self.uninstall_button.pack(side="left")
-        ttk.Button(controls, text="打开日志目录", command=self.open_folder).pack(side="right")
+        # Not "open the folder": it is readable only by administrators, and
+        # Explorer's "Continue" prompt would permanently grant the signed-in
+        # user access to the saved password. This window already runs elevated.
+        self.status_button = ttk.Button(controls, text="查看运行状态", command=self.start_status)
+        self.status_button.pack(side="right")
         ttk.Label(panel, textvariable=self.status, wraplength=490).grid(
             row=9, column=0, columnspan=2, sticky="w", pady=(0, 12))
         ttk.Separator(panel).grid(row=10, column=0, columnspan=2, sticky="ew")
@@ -158,15 +223,24 @@ class SetupWindow:
             self.background("adapters", wifi_choices)
 
     def load_settings(self):
-        try:
-            config = json.loads((INSTALL_DIR / "config.json").read_text(encoding="utf-8-sig"))
-            self.network.set(config["network"])
-            self.interface.set(config["interface"])
-            saved = json.loads((INSTALL_DIR / "credentials.json").read_text(encoding="utf-8-sig"))
-            self.user.set(saved.get("user", ""))
+        # Prefer the current installation; on the first upgrade from 0.1.0
+        # fall back to its ProgramData settings, which the installer deletes
+        # once the new installation succeeds.
+        for directory in (INSTALL_DIR, LEGACY_DIR):
+            try:
+                config = json.loads((directory / "config.json").read_text(encoding="utf-8-sig"))
+                network, interface = config["network"], config["interface"]
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            self.network.set(network)
+            self.interface.set(interface)
+            try:
+                saved = json.loads((directory / "credentials.json").read_text(encoding="utf-8-sig"))
+                self.user.set(saved.get("user", ""))
+            except (OSError, ValueError, AttributeError):
+                pass
             # Re-enter the password when updating; do not display saved secrets.
-        except (OSError, ValueError, KeyError):
-            pass
+            return
 
     def background(self, action, function, *arguments):
         def work():
@@ -178,7 +252,7 @@ class SetupWindow:
 
     def set_busy(self, value):
         self.busy = value
-        for widget in (*self.widgets, self.install_button, self.uninstall_button):
+        for widget in (*self.widgets, self.install_button, self.uninstall_button, self.status_button):
             widget.configure(state="disabled" if value else "normal")
 
     def start_install(self):
@@ -192,18 +266,41 @@ class SetupWindow:
         self.background("install", install, *values)
 
     def start_uninstall(self):
-        if not messagebox.askyesno("卸载开机任务", "停止自动登录并移除开机任务？\n已保存的账号密码和日志会保留。",
-                                   parent=self.root):
+        answer = messagebox.askyesnocancel(
+            "卸载", "停止自动登录并移除开机任务。\n\n是否同时删除保存的账号密码和日志？\n"
+            "· 是：全部删除（推荐，不再使用时）\n· 否：只停止任务，保留账号密码\n· 取消：不卸载",
+            parent=self.root)
+        if answer is None:
             return
         self.set_busy(True)
         self.status.set("正在停止并移除后台任务…")
-        self.background("uninstall", uninstall)
+        self.background("uninstall", uninstall, answer)
 
-    def open_folder(self):
-        if INSTALL_DIR.is_dir():
-            os.startfile(str(INSTALL_DIR))
-        else:
-            messagebox.showinfo("尚未安装", "安装后可在这里查看日志和配置。", parent=self.root)
+    def start_status(self):
+        self.set_busy(True)
+        self.status.set("正在读取运行状态…")
+        self.background("status", read_status)
+
+    def show_status(self, result):
+        state, summary, lines = result
+        states = {"Running": "正在运行", "Ready": "已安装但没有运行（重启电脑后会启动）",
+                  "Disabled": "已被禁用", "": "未安装"}
+        window = tk.Toplevel(self.root)
+        window.title("运行状态")
+        window.transient(self.root)
+        frame = ttk.Frame(window, padding=16)
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="后台任务：%s" % states.get(state, state),
+                  font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w")
+        ttk.Label(frame, text="最近结果：%s" % (summary or "还没有记录，请稍等几秒后再查看。"),
+                  wraplength=520).pack(anchor="w", pady=(6, 10))
+        ttk.Label(frame, text="详细日志（遇到问题时可截图发给维护者）：").pack(anchor="w")
+        text = scrolledtext.ScrolledText(frame, width=78, height=14, font=("Consolas", 9))
+        text.insert("1.0", "\n".join(lines) or "（暂无日志）")
+        text.configure(state="disabled")
+        text.see("end")
+        text.pack(fill="both", expand=True, pady=(4, 10))
+        ttk.Button(frame, text="关闭", command=window.destroy).pack(anchor="e")
 
     def poll(self):
         while not self.events.empty():
@@ -220,16 +317,26 @@ class SetupWindow:
                     if not self.busy:
                         self.status.set("请确认账号、校园网络名称和 Wi-Fi 网卡。")
                 continue
+            if action == "first-status":
+                # Quiet follow-up after installing: show the first result, if any.
+                if not error and result[1]:
+                    self.status.set("安装完成。%s" % result[1])
+                continue
             self.set_busy(False)
             if error:
                 self.status.set("操作失败，请检查填写的信息后重试。")
                 messagebox.showerror("操作失败", error, parent=self.root)
+            elif action == "status":
+                self.status.set("就绪")
+                self.show_status(result)
             elif action == "install":
                 self.password.set("")
-                self.status.set("已安装并启动。重启后会自动运行；认证结果请查看 campus-login.log。")
-                messagebox.showinfo("安装完成", "开机自动登录已启用。\n认证结果请在日志目录中查看。", parent=self.root)
+                self.status.set("安装完成，后台正在检查网络…稍后可点“查看运行状态”确认结果。")
+                messagebox.showinfo("安装完成", "开机自动登录已启用，以后开机会自动登录校园网。\n"
+                                    "可以点“查看运行状态”确认是否登录成功。", parent=self.root)
+                self.background("first-status", lambda: (time.sleep(8), read_status())[1])
             else:
-                self.status.set("开机任务已卸载。账号密码、配置和日志仍保存在安装目录。")
+                self.status.set("已卸载。")
         self.root.after(100, self.poll)
 
     def close(self):
