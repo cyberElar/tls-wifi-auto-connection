@@ -76,7 +76,7 @@ class WindowsSetupTests(unittest.TestCase):
         self.assertIn("当前在线", setup.describe(prefix + "on Tsinglan-School and online"))
         self.assertIn("密码错误", setup.describe(prefix + "login failed (密码错误)"))
         self.assertIn("Home", setup.describe(prefix + "waiting for Tsinglan-School (current network: Home)"))
-        self.assertIsNone(setup.describe("2026-10-12 08:00:01 Login process exited with code 1; restarting in 10 seconds."))
+        self.assertIsNone(setup.describe("2026-10-12 08:00:01 unrelated diagnostic output"))
 
     def test_status_does_not_hide_newer_failures_behind_old_success(self):
         lines = ["2026-10-12 08:00:01 WLAN: logged in to Tsinglan-School",
