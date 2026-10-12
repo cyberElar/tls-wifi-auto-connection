@@ -90,7 +90,9 @@ def main():
     with release.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     release.with_name(release.name + ".sha256").write_text(digest + "  " + release.name + "\n", encoding="ascii")
-    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (release, digest, metadata))
+    # Windows build logs may use cp1252; bilingual report text must be escaped.
+    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (
+        release, digest, json.dumps(metadata, ensure_ascii=True)))
 
 
 if __name__ == "__main__":
