@@ -7,7 +7,8 @@ Accepts a bundled worker with -LoginExecutable, or a Windows-compatible
 campus-login.py and a machine-wide Python 3 installation for source installs.
 The worker must support the original --watch, -i and --cred options.
 Run from an elevated PowerShell prompt. Use -WhatIf to preview or -Uninstall
-to remove the task (installed files and credentials are retained).
+to remove the task; add -RemoveData to also delete the saved credentials, logs
+and installed files.
 .EXAMPLE
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install-campus-login.ps1
 .EXAMPLE
@@ -24,13 +25,22 @@ param(
     [string] $Interface = $env:CAMPUS_IFACE,
     [string] $PythonPath,
     [switch] $NoStart,
-    [switch] $Uninstall
+    [switch] $Uninstall,
+    [switch] $RemoveData
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $taskName = 'CampusLogin'
-$installDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CampusLogin'
+# Program Files, not ProgramData: standard users may create folders under
+# ProgramData, so one could pre-create the directory that SYSTEM later runs
+# code from. Under Program Files only administrators can create it.
+$programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { [Environment]::GetFolderPath('ProgramFiles') }
+$installDir = Join-Path $programFiles 'CampusLogin'
+# Versions before 1.1.0 installed here; it is cleaned up after a new install.
+$legacyDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CampusLogin'
+$installedNames = @('campus-login.exe', 'campus-login.py', 'campus_login_windows.py', 'run-campus-login.ps1',
+    'config.json', 'credentials.json', 'campus-login.log', 'campus-login.log.1')
 $installedCredential = Join-Path $installDir 'credentials.json'
 $utf8 = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $utf8
@@ -70,15 +80,53 @@ function Set-PrivatePath([string] $Path) {
     Set-Acl -LiteralPath $Path -AclObject $acl
 }
 
+function Test-ReparsePoint([string] $Path) {
+    $item = Get-Item -LiteralPath $Path -Force
+    return [bool]($item.Attributes -band [IO.FileAttributes]::ReparsePoint)
+}
+
+function Remove-LegacyInstall {
+    # Delete only the files earlier versions wrote, never through a link, and
+    # the directory only once it is empty: anyone could have created it.
+    if (-not (Test-Path -LiteralPath $legacyDir -PathType Container)) { return }
+    if (Test-ReparsePoint $legacyDir) {
+        Write-Warning "Not cleaning $legacyDir because it is a link."
+        return
+    }
+    foreach ($name in $installedNames) {
+        $path = Join-Path $legacyDir $name
+        if ((Test-Path -LiteralPath $path -PathType Leaf) -and -not (Test-ReparsePoint $path)) {
+            Remove-Item -LiteralPath $path -Force
+        }
+    }
+    if (@(Get-ChildItem -LiteralPath $legacyDir -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $legacyDir -Force
+    } else {
+        Write-Warning "Left unexpected files in $legacyDir; review and delete them manually."
+    }
+}
+
 if ($Uninstall) {
-    if ($PSCmdlet.ShouldProcess($taskName, 'Stop and unregister the campus login task')) {
+    $what = if ($RemoveData) { 'Stop and unregister the campus login task and delete its saved data' } else { 'Stop and unregister the campus login task' }
+    if ($PSCmdlet.ShouldProcess($taskName, $what)) {
         Assert-Administrator
         $existing = Get-ScheduledTask -TaskName $taskName -TaskPath '\' -ErrorAction SilentlyContinue
         if ($existing) {
             Stop-ScheduledTask -TaskName $taskName -TaskPath '\'
             Unregister-ScheduledTask -TaskName $taskName -TaskPath '\' -Confirm:$false
         }
-        Write-Host "Task removed. Installed files and credentials remain in $installDir."
+        if ($RemoveData) {
+            if (Test-Path -LiteralPath $installDir) {
+                if (Test-ReparsePoint $installDir) {
+                    throw "Refusing to delete through a junction or symbolic link: $installDir"
+                }
+                Remove-Item -LiteralPath $installDir -Recurse -Force
+            }
+            Remove-LegacyInstall
+            Write-Host "Task removed. Saved credentials, logs and installed files were deleted."
+        } else {
+            Write-Host "Task removed. Installed files and credentials remain in $installDir."
+        }
     }
     return
 }
@@ -118,8 +166,11 @@ if (-not (Test-Path -LiteralPath $CredentialPath -PathType Leaf)) {
     if ($PSBoundParameters.ContainsKey('CredentialPath')) {
         throw "Credential file not found: $CredentialPath"
     }
+    $legacyCredential = Join-Path $legacyDir 'credentials.json'
     if (Test-Path -LiteralPath $installedCredential -PathType Leaf) {
         $CredentialPath = $installedCredential
+    } elseif (Test-Path -LiteralPath $legacyCredential -PathType Leaf) {
+        $CredentialPath = $legacyCredential
     } else {
         throw "Credential file not found: $CredentialPath. Expected JSON with user and password fields."
     }
@@ -211,7 +262,7 @@ if (Test-Path -LiteralPath $installDir) {
     New-Item -ItemType Directory -Path $installDir | Out-Null
     Set-PrivatePath $installDir
 }
-foreach ($name in @('campus-login.exe', 'campus-login.py', 'campus_login_windows.py', 'run-campus-login.ps1', 'config.json', 'credentials.json', 'campus-login.log', 'campus-login.log.1')) {
+foreach ($name in $installedNames) {
     $destination = Join-Path $installDir $name
     if (Test-Path -LiteralPath $destination) {
         Set-PrivatePath $destination
@@ -257,5 +308,8 @@ Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Trigge
 if (-not $NoStart) {
     Start-ScheduledTask -TaskName $taskName -TaskPath '\'
 }
+# The task now runs from $installDir; the old copy (with its plain-text
+# password) is no longer needed.
+Remove-LegacyInstall
 Get-ScheduledTask -TaskName $taskName -TaskPath '\' | Select-Object TaskName, State
 Write-Host "Logs: $installDir\campus-login.log"

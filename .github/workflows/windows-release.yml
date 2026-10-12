@@ -33,6 +33,7 @@ jobs:
         with:
           name: CampusLogin-windows-x64
           path: |
-            dist/CampusLogin-v*-windows-x64.zip
-            dist/CampusLogin-v*-windows-x64.zip.sha256
+            dist/CampusLoginSetup-v*-windows-x64.exe
+            dist/CampusLoginSetup-v*-windows-x64.exe.sha256
+            dist/THIRD-PARTY-NOTICES.txt
           if-no-files-found: error

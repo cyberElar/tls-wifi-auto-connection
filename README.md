@@ -12,25 +12,31 @@ uses the original Fedora/systemd installer. One-shot login also supports macOS.
 
 ## Windows double-click release
 
-Download `CampusLogin-v1.0.0-windows-x64.zip` from
-[Releases](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest),
-extract the entire ZIP, then double-click **CampusLoginSetup.exe**. Allow the
-administrator prompt, enter your campus username and password, confirm the
-network name and Wi-Fi adapter, and click the primary install/update button.
-The release bundles its runtime, so Python is not required. Keep the `_internal`
-folder next to the setup executable until installation finishes.
+Download the single file `CampusLoginSetup-v<version>-windows-x64.exe` from
+[Releases](../../releases/latest) and double-click it. If SmartScreen shows
+"Windows protected your PC", choose **More info → Run anyway** (the program is
+not code-signed). Allow the administrator prompt, enter your campus username and
+password, and click the primary install/update button. The network name and
+Wi-Fi adapter are filled in automatically in most cases. The executable bundles
+its runtime, so Python is not required.
 
-The installer interface is in Simplified Chinese. Use its uninstall button or
-the included `Uninstall.cmd` to remove the startup task.
-See [the release guide (in Chinese)](README.release.md).
+The installer interface is in Simplified Chinese. **查看运行状态** (view status)
+shows whether the background task is running and explains its latest log entry.
+**卸载** (uninstall) removes the startup task and can also delete the saved
+credentials and logs. See [the release guide (in Chinese)](README.release.md).
 
 **Account and password storage:**
-`%ProgramData%\CampusLogin\credentials.json`, normally
-`C:\ProgramData\CampusLogin\credentials.json`. The UTF-8 JSON fields are `user`
+`%ProgramFiles%\CampusLogin\credentials.json`, normally
+`C:\Program Files\CampusLogin\credentials.json`. The UTF-8 JSON fields are `user`
 (account) and `password` (password). Credentials are stored without encryption;
 only SYSTEM and administrators can access the file and installation directory.
-Uninstalling the task retains this file. Delete the installation directory with
-administrator privileges when you also want to remove the saved credentials.
+Uninstalling keeps this file unless you choose to delete the saved data (or pass
+`-RemoveData` to the PowerShell installer).
+
+Versions before 1.1.0 installed into `%ProgramData%\CampusLogin`. Standard users
+can create folders under ProgramData, so a pre-created folder could hold files
+that the SYSTEM task would then run; 1.1.0 installs under Program Files instead
+and deletes the old files after a successful install.
 
 ## Windows 11 quick start
 
@@ -80,7 +86,7 @@ devices marked `Not Present`. If none are connected, it selects the only remaini
 physical Wi-Fi adapter. If the choice is ambiguous, specify its
 Windows name with `-Interface 'WLAN'` or `-Interface 'Wi-Fi'`. Use `-PythonPath`
 for a Python installation that is not on PATH. Configuration, credentials and
-logs are stored under `%ProgramData%\CampusLogin`, accessible only to SYSTEM
+logs are stored under `%ProgramFiles%\CampusLogin`, accessible only to SYSTEM
 and administrators. The startup task runs as SYSTEM, including before sign-in.
 
 For a manual network status check:
@@ -162,7 +168,8 @@ python -m venv .venv-build
 .\.venv-build\Scripts\python.exe .\build_windows_release.py
 ```
 
-The ZIP and its SHA-256 checksum are written to `dist`. The build launches the
+The single setup executable, its SHA-256 checksum and the third-party notices
+are written to `dist`. The build launches the
 bundled GUI and checks its assets, then checks the worker executable without
 installing a task or authenticating an account.
 
