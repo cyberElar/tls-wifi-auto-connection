@@ -75,6 +75,8 @@ def main():
     metadata = json.loads(report.read_text(encoding="utf-8"))
     if not all(metadata["assets"].values()) or metadata["version"] != options.version:
         raise RuntimeError("Incomplete frozen installer")
+    if set(metadata.get("languages", {})) != {"zh-CN", "en"}:
+        raise RuntimeError("Frozen installer is missing a GUI language")
     subprocess.run([str(worker), "--help"],
                    cwd=smoke, check=True, capture_output=True, env=environment, timeout=60)
     subprocess.run([str(worker), "--list-interfaces"],
@@ -88,7 +90,9 @@ def main():
     with release.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
     release.with_name(release.name + ".sha256").write_text(digest + "  " + release.name + "\n", encoding="ascii")
-    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (release, digest, metadata))
+    # Windows build logs may use cp1252; bilingual report text must be escaped.
+    print("Release: %s\nSHA256: %s\nGUI smoke test: %s" % (
+        release, digest, json.dumps(metadata, ensure_ascii=True)))
 
 
 if __name__ == "__main__":

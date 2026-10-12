@@ -6,7 +6,7 @@
 
 ## 安装（约 1 分钟）
 
-1. 下载 **`CampusLoginSetup-v0.2.0-windows-x64.exe`**（只需要这一个文件）。
+1. 下载 **`CampusLoginSetup-v0.2.1-windows-x64.exe`**（只需要这一个文件）。
 2. 双击运行。
    - 如果出现蓝色窗口“Windows 已保护你的电脑”：点 **更多信息** → **仍要运行**。
      这个程序没有购买代码签名证书，所以 Windows 会这样提示。
@@ -17,6 +17,16 @@
 
 安装完成后，可以点 **查看运行状态**，确认是否显示“已自动登录校园网”或“当前在线”。
 下载的 exe 文件之后可以删除。
+
+## 界面语言
+
+安装程序支持简体中文和英文。通过 **语言 / Language** 下拉框可立即切换；主界面、
+提示框和已打开的运行状态窗口都会使用所选语言，已填写的账号密码及网络信息不会丢失。
+详细日志保留原始内容，最近结果会用当前语言解释。
+
+首次启动按 Windows 显示语言选择：中文系统使用简体中文，其他语言使用英文。
+之后记住你的选择，语言偏好保存在 `%LOCALAPPDATA%\CampusLogin\setup-preferences.json`，
+该文件仅保存语言，不保存账号密码。
 
 ## 常见问题
 
@@ -60,7 +70,7 @@ Wi-Fi 时自动提交账号密码。如果有人在附近开一个同名热点�
 每个版本都附带 `.sha256` 文件。需要确认下载完整时，在 PowerShell 中运行：
 
 ```powershell
-Get-FileHash .\CampusLoginSetup-v0.2.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\CampusLoginSetup-v0.2.1-windows-x64.exe -Algorithm SHA256
 ```
 
 结果应与 `.sha256` 文件中的值一致。
