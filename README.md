@@ -20,10 +20,14 @@ password, and click the primary install/update button. The network name and
 Wi-Fi adapter are filled in automatically in most cases. The executable bundles
 its runtime, so Python is not required.
 
-The installer interface is in Simplified Chinese. **查看运行状态** (view status)
-shows whether the background task is running and explains its latest log entry.
-**卸载** (uninstall) removes the startup task and can also delete the saved
-credentials and logs. See [the release guide (in Chinese)](README.release.md).
+The installer supports English and Simplified Chinese. Use **语言 / Language**
+to switch immediately; the first launch follows your Windows display language
+(Chinese uses Simplified Chinese, other languages use English). Your choice is
+remembered in `%LOCALAPPDATA%\CampusLogin\setup-preferences.json`, separately from
+account credentials. **View status** shows whether the background task is running
+and explains its latest log entry in the selected language. **Uninstall** removes
+the startup task and can also delete saved credentials and logs.
+See [the release guide (in Chinese)](README.release.md).
 
 **Account and password storage:**
 `%ProgramFiles%\CampusLogin\credentials.json`, normally

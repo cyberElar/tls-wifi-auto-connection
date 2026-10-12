@@ -3,8 +3,9 @@
 [English](README.md) | [中文项目说明](README.zh-CN.md)
 
 普通用户可直接下载 [Windows 发布包](https://github.com/cyberElar/tls-wifi-auto-connection/releases/latest)，
-完整解压后双击 `CampusLoginSetup.exe`，允许管理员权限提示，填写账号密码并点击安装。
-发布包自带运行环境，无需安装 Python。详见 [发布包使用说明](README.release.md)。
+双击 `CampusLoginSetup-v0.2.1-windows-x64.exe`，允许管理员权限提示，填写账号密码并点击安装。
+发布包自带运行环境，无需解压或安装 Python。界面支持中英文，可通过 **语言 / Language**
+切换并记住选择。详见 [发布包使用说明](README.release.md)。
 以下手动安装步骤适用于源码版。
 
 `install-campus-login.ps1` 用 Windows 任务计划程序替代原安装脚本的 systemd 服务；

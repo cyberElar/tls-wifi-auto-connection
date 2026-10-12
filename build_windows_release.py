@@ -75,6 +75,8 @@ def main():
     metadata = json.loads(report.read_text(encoding="utf-8"))
     if not all(metadata["assets"].values()) or metadata["version"] != options.version:
         raise RuntimeError("Incomplete frozen installer")
+    if set(metadata.get("languages", {})) != {"zh-CN", "en"}:
+        raise RuntimeError("Frozen installer is missing a GUI language")
     subprocess.run([str(worker), "--help"],
                    cwd=smoke, check=True, capture_output=True, env=environment, timeout=60)
     subprocess.run([str(worker), "--list-interfaces"],

@@ -16,6 +16,8 @@ import tkinter as tk
 from tkinter import messagebox, scrolledtext, ttk
 
 import campus_login_windows as windows
+from setup_i18n import (LANGUAGES, SetupError, error_message, preferred_language,
+                        save_language, translate)
 
 
 ASSETS = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -47,7 +49,7 @@ def ensure_administrator():
     result = shell.ShellExecuteW(None, "runas", sys.executable,
                                 subprocess.list2cmdline(arguments), None, 1)
     if not result or result <= 32:
-        raise OSError("需要管理员权限才能安装开机任务。请允许 Windows 权限提示后重试。")
+        raise SetupError("admin_required")
     return False
 
 
@@ -69,16 +71,19 @@ def run_command(command):
                             creationflags=subprocess.CREATE_NO_WINDOW, timeout=120,
                             env=environment)
     if result.returncode:
-        raise OSError(result.stderr.strip() or result.stdout.strip() or "安装程序运行失败。")
+        details = result.stderr.strip() or result.stdout.strip()
+        if details:
+            raise OSError(details)
+        raise SetupError("command_failed")
     return result.stdout
 
 
 def install(user, password, network, interface, *, preview=False):
     for name in ("campus-login.exe", "install-campus-login.ps1", "run-campus-login.ps1"):
         if not (ASSETS / name).is_file():
-            raise OSError("发布包缺少 %s，请完整解压 ZIP 后再运行。" % name)
+            raise SetupError("missing_asset", name=name)
     if not all(value.strip() for value in (user, password, network, interface)):
-        raise ValueError("请填写账号、密码、校园网络名称和 Wi-Fi 网卡。")
+        raise SetupError("incomplete")
     # Protect the temporary file before writing any secrets; they never appear
     # in command-line arguments and the temporary copy is deleted on exit.
     with tempfile.TemporaryDirectory(prefix="campus-setup-") as directory:
@@ -99,34 +104,33 @@ def uninstall(remove_data=False):
     return run_command(command)
 
 
-# The worker logs in English; students read this window. Each pattern maps the
-# start of a log message (after the "<interface>: " prefix) to plain Chinese.
+# Keep the diagnostic logs unchanged; translate their plain-language summaries.
 MESSAGES = (
-    (r"logged in to (.+)", "已自动登录校园网 {0}。"),
-    (r"on (.+) and online", "已连接校园网 {0}，当前在线，无需再次登录。"),
-    (r"login failed \((.*)\)", "登录失败：{0}。请检查账号和密码，然后重新安装。"),
-    (r"waiting for (.+) \(current network: (.*)\)", "当前没有连接校园网（现在的网络：{1}），连上 {0} 后会自动登录。"),
-    (r"network check failed: (.*)", "暂时无法读取 Wi-Fi 状态：{0}"),
-    (r"no usable credentials", "保存的账号密码不可用，请重新安装并填写账号密码。"),
+    (r"logged in to (.+)", "logged_in"),
+    (r"on (.+) and online", "online"),
+    (r"login failed \((.*)\)", "login_failed"),
+    (r"waiting for (.+) \(current network: (.*)\)", "waiting"),
+    (r"network check failed: (.*)", "network_failed"),
+    (r"no usable credentials", "credentials_unusable"),
     # Supervisor records (run-campus-login.ps1): newer failures must not be
     # hidden behind an older successful login.
-    (r"Supervisor failed: (.*)", "后台程序出错：{0}。请重新运行安装程序修复。"),
-    (r"Login process exited with code (-?\d+)", "后台程序意外退出（代码 {0}），正在自动重启。"),
+    (r"Supervisor failed: (.*)", "supervisor_failed"),
+    (r"Login process exited with code (-?\d+)", "process_exited"),
 )
 
 
-def describe(line):
+def describe(line, language="zh-CN"):
     """Plain-language summary of one log line, or None for unrecognised lines."""
     message = re.sub(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", "", line.strip())
     message = re.sub(r"^(?!Supervisor )[^:]+: (?=(logged|on |login|waiting|network))", "", message)
-    for pattern, text in MESSAGES:
+    for pattern, key in MESSAGES:
         match = re.match(pattern, message)
         if match:
-            return text.format(*match.groups())
+            return translate(key, language, *match.groups())
     return None
 
 
-def read_status():
+def read_status(language="zh-CN"):
     output = windows.run_powershell(
         "$task = Get-ScheduledTask -TaskName CampusLogin -TaskPath '\\' -ErrorAction SilentlyContinue; "
         "if ($task) { [string]$task.State } else { '' }"
@@ -136,18 +140,19 @@ def read_status():
     except OSError:
         lines = []
     state = output.strip()
-    return state, summarize(state, lines), lines
+    return state, summarize(state, lines, language), lines
 
 
-def summarize(state, lines):
+def summarize(state, lines, language="zh-CN"):
     """What a student should know now: the task state first, then the newest log record."""
     if state == "":
-        return "后台任务没有安装，请点“安装 / 更新并启用”。"
-    latest = next((text for text in map(describe, reversed(lines)) if text), None)
+        return translate("task_absent", language)
+    latest = next((text for line in reversed(lines)
+                   if (text := describe(line, language))), None)
     if state != "Running":
         # A stopped task means nothing is being logged, so an old success would mislead.
-        return "后台任务没有在运行，请重新运行安装程序或重启电脑。" + (
-            "最后一条记录：%s" % latest if latest else "")
+        return translate("task_stopped", language) + (
+            "\n" + translate("last_record", language, summary=latest) if latest else "")
     return latest
 
 
@@ -163,64 +168,152 @@ def wifi_choices():
     return sorted(values, key=lambda item: item["Status"] != "Up")
 
 
+class StatusWindow:
+    def __init__(self, setup, result):
+        self.setup = setup
+        self.state, _, self.lines = result
+        self.root = tk.Toplevel(setup.root)
+        self.root.transient(setup.root)
+        self.root.bind("<Destroy>", self.on_destroy)
+        frame = ttk.Frame(self.root, padding=16)
+        frame.pack(fill="both", expand=True)
+        self.task = ttk.Label(frame, font=("Microsoft YaHei UI", 11, "bold"))
+        self.task.pack(anchor="w")
+        self.latest = ttk.Label(frame, wraplength=560)
+        self.latest.pack(anchor="w", pady=(6, 10))
+        self.heading = ttk.Label(frame, wraplength=560)
+        self.heading.pack(anchor="w")
+        self.log = scrolledtext.ScrolledText(frame, width=78, height=14, font=("Consolas", 9))
+        self.log.pack(fill="both", expand=True, pady=(4, 10))
+        self.close_button = ttk.Button(frame, command=self.root.destroy)
+        self.close_button.pack(anchor="e")
+        setup.status_windows.add(self)
+        self.refresh_language()
+
+    def on_destroy(self, event):
+        if event.widget is self.root:
+            self.setup.status_windows.discard(self)
+
+    def refresh_language(self):
+        tr = self.setup.tr
+        states = {"Running": "state_running", "Ready": "state_ready",
+                  "Disabled": "state_disabled", "Queued": "state_queued",
+                  "Unknown": "state_unknown", "": "state_absent"}
+        self.root.title(tr("status_title"))
+        self.task.configure(text=tr("task_state", state=tr(states[self.state])
+                                   if self.state in states else self.state))
+        summary = summarize(self.state, self.lines, self.setup.language)
+        self.latest.configure(text=tr("latest_result", summary=summary or tr("no_records")))
+        self.heading.configure(text=tr("log_heading"))
+        self.close_button.configure(text=tr("close"))
+        if not self.lines or not self.log.get("1.0", "end-1c"):
+            self.log.configure(state="normal")
+            self.log.delete("1.0", "end")
+            self.log.insert("1.0", "\n".join(self.lines) or tr("no_logs"))
+            self.log.configure(state="disabled")
+            self.log.see("end")
+
+
 class SetupWindow:
-    def __init__(self, root, *, discover=True):
+    def __init__(self, root, *, discover=True, language=None):
         self.root = root
         self.events = queue.Queue()
         self.busy = False
-        root.title("TLS 校园网自动登录 · %s" % VERSION)
+        self.language = language if language in LANGUAGES else preferred_language()
+        self.strings = {}
+        self.status_windows = set()
+        self.status_message = ("detecting" if discover else "ready", {})
+        self.status_result = None
         root.resizable(False, False)
         root.protocol("WM_DELETE_WINDOW", self.close)
         ttk.Style(root).theme_use("vista")
         panel = ttk.Frame(root, padding=24)
         panel.grid(sticky="nsew")
-        ttk.Label(panel, text="校园网自动登录", font=("Microsoft YaHei UI", 18, "bold")).grid(
+        ttk.Label(panel, textvariable=self.text("heading"), font=("Microsoft YaHei UI", 18, "bold")).grid(
             row=0, column=0, columnspan=2, sticky="w", pady=(0, 6))
-        ttk.Label(panel, text="填好账号密码，点一次安装。以后开机会自动登录校园网。",
+        ttk.Label(panel, textvariable=self.text("introduction"), wraplength=520,
                   font=("Microsoft YaHei UI", 10)).grid(row=1, column=0, columnspan=2,
                                                        sticky="w", pady=(0, 20))
+        language_row = ttk.Frame(panel)
+        language_row.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 12))
+        ttk.Label(language_row, text="语言 / Language").pack(side="left", padx=(0, 16))
+        self.language_choice = tk.StringVar(value=LANGUAGES[self.language])
+        self.language_selector = ttk.Combobox(language_row, textvariable=self.language_choice,
+                                              values=tuple(LANGUAGES.values()), state="readonly", width=16)
+        self.language_selector.pack(side="right")
+        self.language_selector.bind("<<ComboboxSelected>>", self.change_language)
         self.user = tk.StringVar()
         self.password = tk.StringVar()
         self.network = tk.StringVar(value="Tsinglan-School")
         self.interface = tk.StringVar()
-        self.status = tk.StringVar(value="正在检测 Wi-Fi 网卡…" if discover else "就绪")
+        self.status = tk.StringVar()
         self.widgets = []
-        fields = (("校园账号", self.user), ("密码", self.password), ("校园网络名称 / SSID", self.network))
-        for row, (label, variable) in enumerate(fields, 2):
-            ttk.Label(panel, text=label).grid(row=row, column=0, sticky="w", padx=(0, 16), pady=7)
+        fields = (("user", self.user), ("password", self.password), ("network", self.network))
+        for row, (key, variable) in enumerate(fields, 3):
+            ttk.Label(panel, textvariable=self.text(key)).grid(row=row, column=0, sticky="w", padx=(0, 16), pady=7)
             entry = ttk.Entry(panel, textvariable=variable, width=38,
                               show="●" if variable is self.password else "")
             entry.grid(row=row, column=1, sticky="ew", pady=7)
             self.widgets.append(entry)
-        ttk.Label(panel, text="Wi-Fi 网卡").grid(row=5, column=0, sticky="w", pady=7)
+        ttk.Label(panel, textvariable=self.text("interface")).grid(row=6, column=0, sticky="w", pady=7)
         self.adapter = ttk.Combobox(panel, textvariable=self.interface, width=36)
-        self.adapter.grid(row=5, column=1, sticky="ew", pady=7)
+        self.adapter.grid(row=6, column=1, sticky="ew", pady=7)
         self.widgets.append(self.adapter)
-        ttk.Label(panel, text="网络名称应与校园 Wi-Fi 的 SSID 或 Windows 网络配置名称一致。",
-                  wraplength=490).grid(row=6, column=0, columnspan=2, sticky="w", pady=(5, 16))
-        self.install_button = ttk.Button(panel, text="安装 / 更新并启用", command=self.start_install)
-        self.install_button.grid(row=7, column=0, columnspan=2, sticky="ew", ipady=5)
+        ttk.Label(panel, textvariable=self.text("network_hint"),
+                  wraplength=520).grid(row=7, column=0, columnspan=2, sticky="w", pady=(5, 16))
+        self.install_button = ttk.Button(panel, textvariable=self.text("install"), command=self.start_install)
+        self.install_button.grid(row=8, column=0, columnspan=2, sticky="ew", ipady=5)
         controls = ttk.Frame(panel)
-        controls.grid(row=8, column=0, columnspan=2, sticky="ew", pady=(10, 16))
-        self.uninstall_button = ttk.Button(controls, text="卸载", command=self.start_uninstall)
+        controls.grid(row=9, column=0, columnspan=2, sticky="ew", pady=(10, 16))
+        self.uninstall_button = ttk.Button(controls, textvariable=self.text("uninstall"), command=self.start_uninstall)
         self.uninstall_button.pack(side="left")
         # Not "open the folder": it is readable only by administrators, and
         # Explorer's "Continue" prompt would permanently grant the signed-in
         # user access to the saved password. This window already runs elevated.
-        self.status_button = ttk.Button(controls, text="查看运行状态", command=self.start_status)
+        self.status_button = ttk.Button(controls, textvariable=self.text("view_status"), command=self.start_status)
         self.status_button.pack(side="right")
-        ttk.Label(panel, textvariable=self.status, wraplength=490).grid(
-            row=9, column=0, columnspan=2, sticky="w", pady=(0, 12))
-        ttk.Separator(panel).grid(row=10, column=0, columnspan=2, sticky="ew")
-        ttk.Label(panel, text="账号密码文件：%s\n仅 SYSTEM 和管理员可访问。" % (
-            INSTALL_DIR / "credentials.json"), wraplength=490).grid(
-                row=11, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        ttk.Label(panel, textvariable=self.status, wraplength=520).grid(
+            row=10, column=0, columnspan=2, sticky="w", pady=(0, 12))
+        ttk.Separator(panel).grid(row=11, column=0, columnspan=2, sticky="ew")
+        ttk.Label(panel, textvariable=self.text("credential_notice", path=INSTALL_DIR / "credentials.json"),
+                  wraplength=520).grid(row=12, column=0, columnspan=2, sticky="w", pady=(12, 0))
+        self.refresh_language()
         if discover:
             self.load_settings()
         self.widgets[0].focus_set()
         root.after(100, self.poll)
         if discover:
             self.background("adapters", wifi_choices)
+
+    def tr(self, key, **values):
+        return translate(key, self.language, **values)
+
+    def text(self, key, **values):
+        variable = tk.StringVar(value=self.tr(key, **values))
+        self.strings[key] = (variable, values)
+        return variable
+
+    def change_language(self, event=None):
+        self.language = next(code for code, name in LANGUAGES.items()
+                             if name == self.language_choice.get())
+        save_language(self.language)
+        self.refresh_language()
+
+    def refresh_language(self):
+        self.root.title(self.tr("window_title", version=VERSION))
+        for key, (variable, values) in self.strings.items():
+            variable.set(self.tr(key, **values))
+        key, values = self.status_message
+        if key == "installed_follow_up":
+            state, _, lines = self.status_result
+            values = {"summary": summarize(state, lines, self.language) or self.tr("no_records")}
+        self.status.set(self.tr(key, **values))
+        for window in self.status_windows:
+            window.refresh_language()
+
+    def set_status(self, key, **values):
+        self.status_message = (key, values)
+        self.refresh_language()
 
     def load_settings(self):
         # Prefer the current installation; on the first upgrade from 0.1.0
@@ -247,7 +340,7 @@ class SetupWindow:
             try:
                 self.events.put((action, function(*arguments), None))
             except Exception as error:
-                self.events.put((action, None, str(error)))
+                self.events.put((action, None, error))
         threading.Thread(target=work, daemon=True).start()
 
     def set_busy(self, value):
@@ -259,55 +352,37 @@ class SetupWindow:
         values = tuple(variable.get() for variable in
                        (self.user, self.password, self.network, self.interface))
         if not all(value.strip() for value in values):
-            messagebox.showerror("信息不完整", "请填写账号、密码、校园网络名称和 Wi-Fi 网卡。", parent=self.root)
+            messagebox.showerror(self.tr("incomplete_title"), self.tr("incomplete"), parent=self.root)
             return
         self.set_busy(True)
-        self.status.set("正在安装并启动后台任务…")
+        self.set_status("installing")
         self.background("install", install, *values)
 
     def start_uninstall(self):
         answer = messagebox.askyesnocancel(
-            "卸载", "停止自动登录并移除开机任务。\n\n是否同时删除保存的账号密码和日志？\n"
-            "· 是：全部删除（推荐，不再使用时）\n· 否：只停止任务，保留账号密码\n· 取消：不卸载",
+            self.tr("uninstall"), self.tr("uninstall_prompt"),
             parent=self.root)
         if answer is None:
             return
         self.set_busy(True)
-        self.status.set("正在停止并移除后台任务…")
+        self.set_status("uninstalling")
         self.background("uninstall", uninstall, answer)
 
     def start_status(self):
         self.set_busy(True)
-        self.status.set("正在读取运行状态…")
+        self.set_status("reading_status")
         self.background("status", read_status)
 
     def show_status(self, result):
-        state, summary, lines = result
-        states = {"Running": "正在运行", "Ready": "已安装但没有运行（重启电脑后会启动）",
-                  "Disabled": "已被禁用", "": "未安装"}
-        window = tk.Toplevel(self.root)
-        window.title("运行状态")
-        window.transient(self.root)
-        frame = ttk.Frame(window, padding=16)
-        frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="后台任务：%s" % states.get(state, state),
-                  font=("Microsoft YaHei UI", 11, "bold")).pack(anchor="w")
-        ttk.Label(frame, text="最近结果：%s" % (summary or "还没有记录，请稍等几秒后再查看。"),
-                  wraplength=520).pack(anchor="w", pady=(6, 10))
-        ttk.Label(frame, text="详细日志（遇到问题时可截图发给维护者）：").pack(anchor="w")
-        text = scrolledtext.ScrolledText(frame, width=78, height=14, font=("Consolas", 9))
-        text.insert("1.0", "\n".join(lines) or "（暂无日志）")
-        text.configure(state="disabled")
-        text.see("end")
-        text.pack(fill="both", expand=True, pady=(4, 10))
-        ttk.Button(frame, text="关闭", command=window.destroy).pack(anchor="e")
+        return StatusWindow(self, result)
 
     def poll(self):
         while not self.events.empty():
             action, result, error = self.events.get_nowait()
             if action == "adapters":
                 if error:
-                    self.status.set("未能自动检测网卡，请填写 Windows 中的 Wi-Fi 网卡名称。")
+                    if not self.busy:
+                        self.set_status("detection_failed")
                 else:
                     self.adapter["values"] = tuple(item["Name"] for item in result)
                     connected = [item for item in result if item["Status"] == "Up"]
@@ -315,28 +390,28 @@ class SetupWindow:
                     if not self.interface.get() and len(preferred) == 1:
                         self.interface.set(preferred[0]["Name"])
                     if not self.busy:
-                        self.status.set("请确认账号、校园网络名称和 Wi-Fi 网卡。")
+                        self.set_status("confirm_settings")
                 continue
             if action == "first-status":
                 # Quiet follow-up after installing: show the first result, if any.
-                if not error and result[1]:
-                    self.status.set("安装完成。%s" % result[1])
+                if not error and result[1] and not self.busy and self.status_message[0] == "installed_pending":
+                    self.status_result = result
+                    self.set_status("installed_follow_up")
                 continue
             self.set_busy(False)
             if error:
-                self.status.set("操作失败，请检查填写的信息后重试。")
-                messagebox.showerror("操作失败", error, parent=self.root)
+                self.set_status("retry")
+                messagebox.showerror(self.tr("operation_failed"), error_message(error, self.language), parent=self.root)
             elif action == "status":
-                self.status.set("就绪")
+                self.set_status("ready")
                 self.show_status(result)
             elif action == "install":
                 self.password.set("")
-                self.status.set("安装完成，后台正在检查网络…稍后可点“查看运行状态”确认结果。")
-                messagebox.showinfo("安装完成", "开机自动登录已启用，以后开机会自动登录校园网。\n"
-                                    "可以点“查看运行状态”确认是否登录成功。", parent=self.root)
+                self.set_status("installed_pending")
+                messagebox.showinfo(self.tr("installed_title"), self.tr("installed_message"), parent=self.root)
                 self.background("first-status", lambda: (time.sleep(8), read_status())[1])
             else:
-                self.status.set("已卸载。")
+                self.set_status("uninstalled")
         self.root.after(100, self.poll)
 
     def close(self):
@@ -349,6 +424,7 @@ def main():
     parser.add_argument("--smoke-test", type=Path, help=argparse.SUPPRESS)
     parser.add_argument("--uninstall", action="store_true")
     options = parser.parse_args()
+    language = preferred_language()
     root = tk.Tk()
     root.withdraw()
     try:
@@ -359,6 +435,17 @@ def main():
                       "width": root.winfo_reqwidth(), "height": root.winfo_reqheight(),
                       "assets": {name: (ASSETS / name).is_file() for name in
                                  ("campus-login.exe", "install-campus-login.ps1", "run-campus-login.ps1")}}
+            report["languages"] = {}
+            for language in LANGUAGES:
+                window.language = language
+                window.refresh_language()
+                status_window = window.show_status(("Running", None, ["WLAN: logged in to Campus Smoke Network"]))
+                root.update_idletasks()
+                report["languages"][language] = {
+                    "title": root.title(), "width": root.winfo_reqwidth(), "height": root.winfo_reqheight(),
+                    "status": status_window.latest.cget("text"),
+                }
+                status_window.root.destroy()
             if not all(report["assets"].values()):
                 raise OSError("Incomplete release assets")
             report["preview"] = install("release-smoke-user", "release-smoke-password",
@@ -367,7 +454,7 @@ def main():
             return
         if not ensure_administrator():
             return
-        window = SetupWindow(root)
+        window = SetupWindow(root, language=language)
         if options.uninstall:
             root.after(200, window.start_uninstall)
         root.deiconify()
@@ -375,7 +462,7 @@ def main():
     except Exception as error:
         if options.smoke_test:
             raise
-        messagebox.showerror("无法启动安装程序", str(error), parent=root)
+        messagebox.showerror(translate("startup_failed", language), error_message(error, language), parent=root)
     finally:
         try:
             root.destroy()
