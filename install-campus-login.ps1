@@ -37,7 +37,7 @@ $taskName = 'CampusLogin'
 # code from. Under Program Files only administrators can create it.
 $programFiles = if ($env:ProgramW6432) { $env:ProgramW6432 } else { [Environment]::GetFolderPath('ProgramFiles') }
 $installDir = Join-Path $programFiles 'CampusLogin'
-# Versions before 1.1.0 installed here; it is cleaned up after a new install.
+# Versions before 0.2.0 (the v0.1.0 release) installed here; it is cleaned up after a new install.
 $legacyDir = Join-Path ([Environment]::GetFolderPath('CommonApplicationData')) 'CampusLogin'
 $installedNames = @('campus-login.exe', 'campus-login.py', 'campus_login_windows.py', 'run-campus-login.ps1',
     'config.json', 'credentials.json', 'campus-login.log', 'campus-login.log.1')

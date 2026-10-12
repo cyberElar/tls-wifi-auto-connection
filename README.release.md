@@ -6,7 +6,7 @@
 
 ## 安装（约 1 分钟）
 
-1. 下载 **`CampusLoginSetup-v1.1.0-windows-x64.exe`**（只需要这一个文件）。
+1. 下载 **`CampusLoginSetup-v0.2.0-windows-x64.exe`**（只需要这一个文件）。
 2. 双击运行。
    - 如果出现蓝色窗口“Windows 已保护你的电脑”：点 **更多信息** → **仍要运行**。
      这个程序没有购买代码签名证书，所以 Windows 会这样提示。
@@ -52,7 +52,7 @@
 Wi-Fi 时自动提交账号密码。如果有人在附近开一个同名热点，就可能收到你的密码。
 这是学校认证系统的设计，程序无法完全避免；看到可疑的同名 Wi-Fi 时请不要连接。
 
-从 1.0.0 升级：直接运行新版安装程序即可。旧版保存在 `C:\ProgramData\CampusLogin` 的文件
+从 0.1.0 升级：直接运行新版安装程序即可。旧版保存在 `C:\ProgramData\CampusLogin` 的文件
 会在安装成功后自动删除。
 
 ## 校验文件（可选）
@@ -60,7 +60,7 @@ Wi-Fi 时自动提交账号密码。如果有人在附近开一个同名热点�
 每个版本都附带 `.sha256` 文件。需要确认下载完整时，在 PowerShell 中运行：
 
 ```powershell
-Get-FileHash .\CampusLoginSetup-v1.1.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\CampusLoginSetup-v0.2.0-windows-x64.exe -Algorithm SHA256
 ```
 
 结果应与 `.sha256` 文件中的值一致。

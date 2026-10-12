@@ -78,6 +78,46 @@ class WindowsSetupTests(unittest.TestCase):
         self.assertIn("Home", setup.describe(prefix + "waiting for Tsinglan-School (current network: Home)"))
         self.assertIsNone(setup.describe("2026-10-12 08:00:01 Login process exited with code 1; restarting in 10 seconds."))
 
+    def test_status_does_not_hide_newer_failures_behind_old_success(self):
+        lines = ["2026-10-12 08:00:01 WLAN: logged in to Tsinglan-School",
+                 "2026-10-12 09:00:01 Supervisor failed: Required file is missing: C:\\x"]
+        self.assertIn("后台程序出错", setup.summarize("Running", lines))
+        stopped = setup.summarize("Ready", lines[:1])
+        self.assertIn("没有在运行", stopped)
+        self.assertNotIn("后台任务：", stopped)
+        self.assertIn("没有安装", setup.summarize("", lines[:1]))
+        exited = lines[:1] + ["2026-10-12 09:00:01 Login process exited with code 1; restarting in 10 seconds."]
+        self.assertIn("意外退出", setup.summarize("Running", exited))
+        self.assertIn("已自动登录", setup.summarize("Running", exited + [lines[0]]))
+
+    def test_upgrade_reads_legacy_settings_but_not_password(self):
+        class Field:
+            def __init__(self, value=""):
+                self.value = value
+            def set(self, value):
+                self.value = value
+        with tempfile.TemporaryDirectory(prefix="campus test ", dir=ROOT) as directory:
+            current, legacy = Path(directory) / "new", Path(directory) / "old"
+            legacy.mkdir()
+            (legacy / "config.json").write_text(
+                json.dumps({"network": "CustomCampus", "interface": "WLAN 2"}), encoding="utf-8")
+            (legacy / "credentials.json").write_text(
+                json.dumps({"user": "legacy-user", "password": "legacy-secret"}), encoding="utf-8")
+            window = type("Window", (), {})()
+            window.user, window.password = Field(), Field()
+            window.network, window.interface = Field("Tsinglan-School"), Field()
+            with patch.object(setup, "INSTALL_DIR", current), patch.object(setup, "LEGACY_DIR", legacy):
+                setup.SetupWindow.load_settings(window)
+            self.assertEqual((window.network.value, window.interface.value, window.user.value),
+                             ("CustomCampus", "WLAN 2", "legacy-user"))
+            self.assertEqual(window.password.value, "")
+            current.mkdir()
+            (current / "config.json").write_text(
+                json.dumps({"network": "Tsinglan-School", "interface": "WLAN"}), encoding="utf-8")
+            with patch.object(setup, "INSTALL_DIR", current), patch.object(setup, "LEGACY_DIR", legacy):
+                setup.SetupWindow.load_settings(window)
+            self.assertEqual((window.network.value, window.interface.value), ("Tsinglan-School", "WLAN"))
+
     def test_ambiguous_wifi_remains_available_for_manual_selection(self):
         values = [{"Name": "Wi-Fi 2", "Status": "Disconnected"}, {"Name": "WLAN", "Status": "Up"}]
         with patch.object(setup.windows, "run_powershell", return_value=json.dumps(values)):

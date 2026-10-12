@@ -33,9 +33,9 @@ only SYSTEM and administrators can access the file and installation directory.
 Uninstalling keeps this file unless you choose to delete the saved data (or pass
 `-RemoveData` to the PowerShell installer).
 
-Versions before 1.1.0 installed into `%ProgramData%\CampusLogin`. Standard users
+Versions before 0.2.0 (the v0.1.0 release) installed into `%ProgramData%\CampusLogin`. Standard users
 can create folders under ProgramData, so a pre-created folder could hold files
-that the SYSTEM task would then run; 1.1.0 installs under Program Files instead
+that the SYSTEM task would then run; 0.2.0 installs under Program Files instead
 and deletes the old files after a successful install.
 
 ## Windows 11 quick start

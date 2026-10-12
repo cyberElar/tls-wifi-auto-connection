@@ -192,6 +192,9 @@ def watch(args):
             if message != last_error:
                 print("%s: network check failed: %s" % (args.iface, message), flush=True)
             last_error = message
+            # The error is now the latest line in the log; whatever comes
+            # next, online or away, has to be logged again to supersede it.
+            announced = None
             time.sleep(15)
             continue
         on_campus = args.watch in (name, ssid)

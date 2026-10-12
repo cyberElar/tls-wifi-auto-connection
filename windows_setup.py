@@ -22,6 +22,8 @@ ASSETS = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 INSTALL_DIR = Path(os.environ.get("ProgramW6432") or os.environ.get("ProgramFiles")
                    or r"C:\Program Files") / "CampusLogin"
 LOG = INSTALL_DIR / "campus-login.log"
+# Where 0.1.0 installed; read only to carry settings over on the first upgrade.
+LEGACY_DIR = Path(os.environ.get("ProgramData", r"C:\ProgramData")) / "CampusLogin"
 VERSION = (ASSETS / "VERSION").read_text(encoding="utf-8").strip()
 
 
@@ -106,13 +108,17 @@ MESSAGES = (
     (r"waiting for (.+) \(current network: (.*)\)", "当前没有连接校园网（现在的网络：{1}），连上 {0} 后会自动登录。"),
     (r"network check failed: (.*)", "暂时无法读取 Wi-Fi 状态：{0}"),
     (r"no usable credentials", "保存的账号密码不可用，请重新安装并填写账号密码。"),
+    # Supervisor records (run-campus-login.ps1): newer failures must not be
+    # hidden behind an older successful login.
+    (r"Supervisor failed: (.*)", "后台程序出错：{0}。请重新运行安装程序修复。"),
+    (r"Login process exited with code (-?\d+)", "后台程序意外退出（代码 {0}），正在自动重启。"),
 )
 
 
 def describe(line):
     """Plain-language summary of one log line, or None for unrecognised lines."""
     message = re.sub(r"^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d ", "", line.strip())
-    message = re.sub(r"^[^:]+: (?=(logged|on |login|waiting|network))", "", message)
+    message = re.sub(r"^(?!Supervisor )[^:]+: (?=(logged|on |login|waiting|network))", "", message)
     for pattern, text in MESSAGES:
         match = re.match(pattern, message)
         if match:
@@ -129,8 +135,20 @@ def read_status():
         lines = LOG.read_text(encoding="utf-8", errors="replace").splitlines()[-40:]
     except OSError:
         lines = []
-    summary = next((text for text in map(describe, reversed(lines)) if text), None)
-    return output.strip(), summary, lines
+    state = output.strip()
+    return state, summarize(state, lines), lines
+
+
+def summarize(state, lines):
+    """What a student should know now: the task state first, then the newest log record."""
+    if state == "":
+        return "后台任务没有安装，请点“安装 / 更新并启用”。"
+    latest = next((text for text in map(describe, reversed(lines)) if text), None)
+    if state != "Running":
+        # A stopped task means nothing is being logged, so an old success would mislead.
+        return "后台任务没有在运行，请重新运行安装程序或重启电脑。" + (
+            "最后一条记录：%s" % latest if latest else "")
+    return latest
 
 
 def wifi_choices():
@@ -205,15 +223,24 @@ class SetupWindow:
             self.background("adapters", wifi_choices)
 
     def load_settings(self):
-        try:
-            config = json.loads((INSTALL_DIR / "config.json").read_text(encoding="utf-8-sig"))
-            self.network.set(config["network"])
-            self.interface.set(config["interface"])
-            saved = json.loads((INSTALL_DIR / "credentials.json").read_text(encoding="utf-8-sig"))
-            self.user.set(saved.get("user", ""))
+        # Prefer the current installation; on the first upgrade from 0.1.0
+        # fall back to its ProgramData settings, which the installer deletes
+        # once the new installation succeeds.
+        for directory in (INSTALL_DIR, LEGACY_DIR):
+            try:
+                config = json.loads((directory / "config.json").read_text(encoding="utf-8-sig"))
+                network, interface = config["network"], config["interface"]
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            self.network.set(network)
+            self.interface.set(interface)
+            try:
+                saved = json.loads((directory / "credentials.json").read_text(encoding="utf-8-sig"))
+                self.user.set(saved.get("user", ""))
+            except (OSError, ValueError, AttributeError):
+                pass
             # Re-enter the password when updating; do not display saved secrets.
-        except (OSError, ValueError, KeyError):
-            pass
+            return
 
     def background(self, action, function, *arguments):
         def work():

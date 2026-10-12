@@ -167,6 +167,23 @@ class LoginTests(unittest.TestCase):
         self.assertEqual(lines, ["WLAN: waiting for Tsinglan-School (current network: Home)",
                                  "WLAN: on Tsinglan-School and online"])
 
+    def test_watch_announces_recovery_after_network_error(self):
+        args = argparse.Namespace(iface="WLAN", watch="Tsinglan-School", cred="unused")
+        output = io.StringIO()
+        campus = (args.watch, args.watch)
+        with patch.object(login, "current_network",
+                          side_effect=[campus, OSError("adapter unavailable"), campus]), \
+             patch.object(login, "source_address", return_value="10.0.0.2"), \
+             patch.object(login, "state", return_value="online"), \
+             patch.object(login.time, "sleep", side_effect=[None, None, StopIteration]), \
+             contextlib.redirect_stdout(output):
+            with self.assertRaises(StopIteration):
+                login.watch(args)
+        self.assertEqual(output.getvalue().splitlines(), [
+            "WLAN: on Tsinglan-School and online",
+            "WLAN: network check failed: adapter unavailable",
+            "WLAN: on Tsinglan-School and online"])
+
 
 if __name__ == "__main__":
     unittest.main()

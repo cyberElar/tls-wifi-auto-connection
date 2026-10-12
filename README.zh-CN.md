@@ -31,8 +31,8 @@ C:\Program Files\CampusLogin\credentials.json
 卸载时选择删除数据（或给 PowerShell 安装脚本加 `-RemoveData`）会一并删除凭据文件，
 否则保留。
 
-1.1.0 之前的版本安装在 `%ProgramData%\CampusLogin`。普通用户可以在 ProgramData 下新建文件夹，
-预先建好的目录里可能留有会被 SYSTEM 任务执行的文件；1.1.0 改为安装到 Program Files，
+0.2.0 之前的版本（v0.1.0 发布）安装在 `%ProgramData%\CampusLogin`。普通用户可以在 ProgramData 下新建文件夹，
+预先建好的目录里可能留有会被 SYSTEM 任务执行的文件；0.2.0 改为安装到 Program Files，
 并在安装成功后删除旧目录里的文件。
 
 ## Windows 11 源码安装
